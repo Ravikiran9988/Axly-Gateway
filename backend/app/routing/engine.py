@@ -262,8 +262,8 @@ class RoutingEngine:
                             "code": "STREAM_INTERRUPTED",
                         }
                     }
-                    yield f"data: {json.dumps(error_payload)}\\n\\n"
-                    yield "data: [DONE]\\n\\n"
+                    yield f"data: {json.dumps(error_payload)}\n\n"
+                    yield "data: [DONE]\n\n"
                     return
 
                 # Record attempt success
