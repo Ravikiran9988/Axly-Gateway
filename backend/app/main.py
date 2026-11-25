@@ -30,6 +30,8 @@ async def lifespan(app: FastAPI):
         f"Starting {settings.APP_NAME} v{settings.APP_VERSION} [environment: {settings.ENVIRONMENT}]"
     )
     yield
+    from app.providers.registry import get_provider_registry
+    await get_provider_registry().aclose_all()
     logger.info(f"Shutting down {settings.APP_NAME}")
 
 
