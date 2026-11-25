@@ -74,12 +74,12 @@ async def get_admin_diagnostics(
             },
             "providers": {
                 "total": len(providers),
-                "active": sum(1 for p in providers if p.is_active),
+                "active": sum(1 for p in providers if p.is_enabled),
                 "items": [
                     {
                         "id": str(p.id),
                         "name": p.name,
-                        "is_active": p.is_active,
+                        "is_active": p.is_enabled,
                         "credentials_count": len(p.credentials) if p.credentials else 0,
                     }
                     for p in providers
