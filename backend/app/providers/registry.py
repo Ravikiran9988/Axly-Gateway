@@ -14,6 +14,7 @@ class ProviderRegistry:
 
     def __init__(self):
         self._adapters: Dict[str, BaseProviderAdapter] = {}
+        self._custom_adapters: Dict[tuple[str, str], BaseProviderAdapter] = {}
         # Register standard default adapters
         self.register(GeminiAdapter())
         self.register(GroqAdapter())
@@ -23,7 +24,7 @@ class ProviderRegistry:
         self._adapters[adapter.provider_name.lower()] = adapter
         logger.info(f"Registered provider adapter: {adapter.provider_name}")
 
-    def get(self, provider_name: str) -> BaseProviderAdapter:
+    def get(self, provider_name: str, base_url: Optional[str] = None) -> BaseProviderAdapter:
         key = provider_name.lower().strip()
         if key not in self._adapters:
             raise ProviderError(
@@ -31,7 +32,22 @@ class ProviderRegistry:
                 provider=provider_name,
                 status_code=400,
             )
-        return self._adapters[key]
+        default_adapter = self._adapters[key]
+        if not base_url or base_url.rstrip("/") == getattr(default_adapter, "base_url", "").rstrip("/"):
+            return default_adapter
+        custom_key = (key, base_url.rstrip("/"))
+        adapter = self._custom_adapters.get(custom_key)
+        if adapter is None:
+            adapter = default_adapter.__class__(base_url=custom_key[1])
+            self._custom_adapters[custom_key] = adapter
+        return adapter
+
+    async def aclose_all(self) -> None:
+        """Close pooled HTTP clients for default and custom provider adapters."""
+        adapters = list(self._adapters.values()) + list(self._custom_adapters.values())
+        for adapter in adapters:
+            await adapter.aclose()
+        self._custom_adapters.clear()
 
     def list_providers(self) -> List[str]:
         return list(self._adapters.keys())
