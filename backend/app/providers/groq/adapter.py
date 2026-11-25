@@ -85,8 +85,8 @@ class GroqAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         headers = self._get_headers(api_key)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, headers=headers)
+            client = self.get_http_client(10.0)
+            resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
                     self._handle_http_error(resp)
                 return True
@@ -104,8 +104,8 @@ class GroqAdapter(BaseProviderAdapter):
         payload["stream"] = False
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(url, headers=headers, json=payload)
+            client = self.get_http_client(self.timeout)
+            resp = await client.post(url, headers=headers, json=payload)
                 if resp.status_code != 200:
                     self._handle_http_error(resp)
                 data = resp.json()
@@ -124,8 +124,8 @@ class GroqAdapter(BaseProviderAdapter):
         payload["stream"] = True
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream("POST", url, headers=headers, json=payload) as response:
+            client = self.get_http_client(self.timeout)
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
                     if response.status_code != 200:
                         content = await response.aread()
                         dummy_resp = httpx.Response(
@@ -160,8 +160,8 @@ class GroqAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         headers = self._get_headers(api_key)
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, headers=headers)
+            client = self.get_http_client(15.0)
+            resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
                     self._handle_http_error(resp)
                 data = resp.json().get("data", [])
