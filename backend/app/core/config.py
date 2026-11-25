@@ -38,12 +38,11 @@ class Settings(BaseSettings):
 
     # Cryptography & Security
     ENCRYPTION_MASTER_KEY: str = Field(
-        default="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        description="256-bit AES master key in hex format (64 hex characters)",
+        description="Required 256-bit AES master key in hex format (64 hex characters)",
     )
     JWT_SECRET_KEY: str = Field(
-        default="replace_with_a_secure_random_hex_jwt_secret_key_at_least_32_bytes",
-        description="Secret key for signing JWT administrator session tokens",
+        min_length=32,
+        description="Required random secret used to sign administrator JWT sessions",
     )
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
@@ -85,6 +84,16 @@ class Settings(BaseSettings):
             except json.JSONDecodeError:
                 return [i.strip() for i in v.split(",") if i.strip()]
         return v
+
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        clean = v.strip()
+        if len(clean) < 32:
+            raise ValueError("JWT_SECRET_KEY must contain at least 32 characters")
+        if clean.lower() in {"secret", "changeme", "change_me", "password"}:
+            raise ValueError("JWT_SECRET_KEY must not be a placeholder")
+        return clean
 
     @field_validator("ENCRYPTION_MASTER_KEY")
     @classmethod
