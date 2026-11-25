@@ -92,7 +92,7 @@ export function Login() {
                 id="login-email"
                 type="email"
                 required
-                placeholder="admin@yourdomain.local"
+                placeholder="admin@axly.dev"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"

@@ -1,425 +1,493 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  FileText,
   Search,
   Download,
-  Filter,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  ArrowRight,
-  ShieldAlert,
-  Flame,
-  Zap,
+  RefreshCw,
   ChevronLeft,
   ChevronRight,
-  Eye,
-  Copy,
-  Check,
+  X,
+  ArrowRight,
+  ListFilter,
 } from 'lucide-react';
-
 import { logsApi } from '../api/logs';
 import { providersApi } from '../api/providers';
 import { PageHeader } from '../components/layout/PageHeader';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
-import { StatusBadge } from '../components/ui/StatusBadge';
-import { Dialog } from '../components/ui/Dialog';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
+import { StatusBadge } from '../components/ui/StatusBadge';
+import { Badge } from '../components/ui/Badge';
+import { Dialog } from '../components/ui/Dialog';
+import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '../components/ui/Table';
 import { useToast } from '../components/ui/Toast';
+import { formatDate, formatLatency, formatCurrency } from '../lib/utils';
 
 export function RequestLogs() {
   const { addToast } = useToast();
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const pageSize = 25;
   const [search, setSearch] = useState('');
-  const [providerId, setProviderId] = useState('');
+  const [providerFilter, setProviderFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-
-  // Selected Log Detail Modal
   const [selectedRequestId, setSelectedRequestId] = useState(null);
-  const [copiedId, setCopiedId] = useState(false);
-
-  // Queries
-  const { data: logsData, isLoading } = useQuery({
-    queryKey: ['requestLogs', page, pageSize, search, providerId, statusFilter],
-    queryFn: () =>
-      logsApi.listLogs({
-        page,
-        page_size: pageSize,
-        search: search || undefined,
-        provider_id: providerId || undefined,
-        status_filter: statusFilter || undefined,
-      }),
-    refetchInterval: 15000,
-  });
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data: providers = [] } = useQuery({
     queryKey: ['providers'],
     queryFn: providersApi.listProviders,
   });
 
+  const {
+    data: logsData,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: ['request-logs', page, pageSize, search, providerFilter, statusFilter],
+    queryFn: () =>
+      logsApi.listLogs({
+        page,
+        page_size: pageSize,
+        search: search.trim() || undefined,
+        provider_id: providerFilter || undefined,
+        status_filter: statusFilter || undefined,
+      }),
+    keepPreviousData: true,
+  });
+
   const { data: logDetail, isLoading: isDetailLoading } = useQuery({
-    queryKey: ['requestLogDetail', selectedRequestId],
+    queryKey: ['request-log-detail', selectedRequestId],
     queryFn: () => logsApi.getLogDetail(selectedRequestId),
     enabled: !!selectedRequestId,
   });
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
-    addToast('Request ID copied to clipboard', 'info');
-  };
-
-  const handleExportCsv = () => {
-    const url = logsApi.getExportCsvUrl({
-      search,
-      provider_id: providerId,
-      status_filter: statusFilter,
-    });
-    window.open(url, '_blank');
-  };
-
-  const items = logsData?.items || [];
+  const logs = logsData?.items || [];
   const totalCount = logsData?.total_count || 0;
-  const totalPages = logsData?.total_pages || 1;
+  const totalPages = Math.max(1, logsData?.total_pages || 1);
+  const hasFilters = Boolean(search || providerFilter || statusFilter);
+
+  const handleExportCsv = async () => {
+    setIsExporting(true);
+    try {
+      await logsApi.exportCsv({
+        search: search.trim() || undefined,
+        provider_id: providerFilter || undefined,
+        status_filter: statusFilter || undefined,
+      });
+      addToast('CSV log export downloaded', 'success');
+    } catch (err) {
+      addToast(err.message || 'CSV export failed', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const resetFilters = () => {
+    setSearch('');
+    setProviderFilter('');
+    setStatusFilter('');
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <PageHeader
-          title="Request Logs"
-          description="Auditable trace logs for every chat completion, candidate attempt, latency breakdown, and failover decision."
-        />
-        <Button variant="outline" size="sm" onClick={handleExportCsv} className="gap-2 h-9">
-          <Download className="h-4 w-4" />
-          <span>Export CSV</span>
-        </Button>
-      </div>
+      <PageHeader
+        title="Request Logs"
+        description="Complete execution ledger of routed completions, multi-provider failover traces, token accounting, and upstream failure causes."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetching ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCsv}
+              disabled={isExporting || totalCount === 0}
+            >
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              {isExporting ? 'Exporting...' : 'Export CSV'}
+            </Button>
+          </div>
+        }
+      />
 
-      {/* Filter Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-3 shadow-sm text-xs">
-        <div className="flex items-center gap-2 flex-1 sm:max-w-xs">
+      {/* Filter Bar */}
+      <div className="rounded border border-border bg-card p-3.5 flex flex-col md:flex-row md:items-center gap-3">
+        <div className="relative flex-1 min-w-0">
+          <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-2.5 pointer-events-none" />
           <Input
-            placeholder="Search Request ID or model..."
+            id="log-search"
+            aria-label="Search logs by request ID, alias, model, or error"
+            placeholder="Filter by request ID, alias, resolved model, or error..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="h-8 text-xs"
+            className="pl-9 font-mono text-xs"
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-muted-foreground">Provider:</span>
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <Select
-            value={providerId}
+            aria-label="Filter by provider"
+            value={providerFilter}
             onChange={(e) => {
-              setProviderId(e.target.value);
+              setProviderFilter(e.target.value);
               setPage(1);
             }}
-            className="w-40 h-8 text-xs"
+            className="w-44 text-xs"
           >
             <option value="">All Providers</option>
             {providers.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.display_name}
+                {p.display_name || p.name}
               </option>
             ))}
           </Select>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-muted-foreground">Status:</span>
           <Select
+            aria-label="Filter by status"
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setPage(1);
             }}
-            className="w-36 h-8 text-xs"
+            className="w-36 text-xs"
           >
             <option value="">All Statuses</option>
-            <option value="success">Success (2xx)</option>
-            <option value="error">Errors (4xx/5xx)</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
           </Select>
-        </div>
 
-        <div className="ml-auto text-muted-foreground font-mono">
-          {totalCount} total events
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
+              <X className="h-3.5 w-3.5 mr-1" />
+              Clear
+            </Button>
+          )}
+
+          <span className="font-mono text-[11px] text-muted-foreground tabular-nums px-1">
+            {totalCount.toLocaleString()} records
+          </span>
         </div>
       </div>
 
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-muted/40 border-b text-[11px] font-bold uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3">Timestamp (UTC)</th>
-                  <th className="px-4 py-3">Request ID</th>
-                  <th className="px-4 py-3">Client Key</th>
-                  <th className="px-4 py-3">Model</th>
-                  <th className="px-4 py-3">Provider</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Latency</th>
-                  <th className="px-4 py-3">Tokens</th>
-                  <th className="px-4 py-3">Routing</th>
-                  <th className="px-4 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={10} className="p-4 text-center">
-                      <Skeleton className="h-8 w-full" />
-                    </td>
-                  </tr>
-                ) : items.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="p-8 text-center text-muted-foreground">
-                      No request logs found matching current filters.
-                    </td>
-                  </tr>
-                ) : (
-                  items.map((log) => {
-                    const isSuccess = log.status_code >= 200 && log.status_code < 400;
-                    return (
-                      <tr
-                        key={log.id}
-                        onClick={() => setSelectedRequestId(log.request_id)}
-                        className="hover:bg-muted/30 transition-colors cursor-pointer"
-                      >
-                        <td className="px-4 py-3 font-mono text-muted-foreground whitespace-nowrap">
-                          {new Date(log.created_at).toLocaleTimeString()}
-                        </td>
-                        <td className="px-4 py-3 font-mono font-medium text-foreground">
-                          {log.request_id.slice(0, 14)}...
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground truncate max-w-[120px]">
-                          {log.gateway_key_label || 'Direct'}
-                        </td>
-                        <td className="px-4 py-3 font-mono font-bold text-foreground">
-                          {log.model_identifier}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant="outline" className="font-mono text-[10px]">
-                            {log.provider_display_name || log.provider_name || 'auto'}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge
-                            variant={isSuccess ? 'success' : 'destructive'}
-                            className="font-mono text-[10px]"
-                          >
-                            {log.status_code}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3 font-mono">
-                          {Math.round(log.latency_ms)}ms
-                        </td>
-                        <td className="px-4 py-3 font-mono text-muted-foreground">
-                          {log.total_tokens ? log.total_tokens.toLocaleString() : '—'}
-                        </td>
-                        <td className="px-4 py-3">
-                          {log.has_fallback ? (
-                            <Badge variant="warning" className="gap-1 text-[10px]">
-                              <Zap className="h-3 w-3" />
-                              <span>Failover ({log.attempt_count})</span>
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="text-[10px]">
-                              1 Attempt
-                            </Badge>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+      {/* Execution Table */}
+      <div className="rounded border border-border bg-card overflow-hidden">
+        {isLoading ? (
+          <div className="p-4 space-y-2.5">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
           </div>
+        ) : logs.length === 0 ? (
+          <div className="p-6">
+            <EmptyState
+              icon={ListFilter}
+              title={hasFilters ? 'No matching logs found' : 'No request traffic recorded yet'}
+              description={
+                hasFilters
+                  ? 'Try adjusting or clearing your search query, provider, or status filters.'
+                  : 'Once client keys execute completions through /v1/chat/completions, request traces and routing hops will appear here.'
+              }
+              actionLabel={hasFilters ? 'Clear Filters' : undefined}
+              onAction={hasFilters ? resetFilters : undefined}
+            />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Timestamp</TableHead>
+                <TableHead>Request ID</TableHead>
+                <TableHead>Route / Model</TableHead>
+                <TableHead>Provider</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Attempts</TableHead>
+                <TableHead className="text-right">Latency</TableHead>
+                <TableHead className="text-right">Tokens / Cost</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => {
+                const resolvedDiffers =
+                  log.resolved_model && log.resolved_model !== log.requested_model;
+                return (
+                  <TableRow
+                    key={log.id || log.request_id}
+                    tabIndex={0}
+                    onClick={() => setSelectedRequestId(log.request_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedRequestId(log.request_id);
+                      }
+                    }}
+                    className="cursor-pointer focus-visible:outline-none focus-visible:bg-muted/70"
+                  >
+                    <TableCell className="font-mono text-[11px] text-muted-foreground whitespace-nowrap tabular-nums">
+                      {formatDate(log.created_at)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs font-medium text-foreground max-w-[140px] truncate">
+                      {log.request_id}
+                    </TableCell>
+                    <TableCell className="max-w-[240px]">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-xs font-semibold text-foreground">
+                          {log.requested_model}
+                        </span>
+                        {resolvedDiffers && (
+                          <>
+                            <ArrowRight className="h-3 w-3 text-route shrink-0" />
+                            <span className="font-mono text-[11px] text-route truncate">
+                              {log.resolved_model}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
+                      {log.selected_provider || '—'}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={log.status} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-xs tabular-nums text-foreground">
+                          {log.attempt_count ?? 1}
+                        </span>
+                        {log.failover_occurred && (
+                          <Badge variant="warning" className="font-mono text-[10px]">
+                            FAILOVER
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs tabular-nums text-foreground">
+                      {formatLatency(log.latency_ms)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-[11px] tabular-nums">
+                      <span className="text-foreground">
+                        {(log.total_tokens || 0).toLocaleString()} tok
+                      </span>
+                      <span className="block text-muted-foreground">
+                        {formatCurrency(log.estimated_cost_usd)}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
 
-          {/* Pagination Controls */}
-          <div className="flex items-center justify-between border-t px-4 py-3 text-xs text-muted-foreground">
-            <div>
-              Page <span className="font-medium text-foreground">{page}</span> of{' '}
-              <span className="font-medium text-foreground">{totalPages}</span>
-            </div>
-            <div className="flex items-center gap-2">
+        {/* Pagination Footer */}
+        {totalCount > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-subtle px-4 py-2.5">
+            <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+              Page {page} of {totalPages}
+            </span>
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
-                disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="h-8 gap-1"
+                disabled={page <= 1}
               >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                <span>Previous</span>
+                <ChevronLeft className="h-3.5 w-3.5 mr-1" />
+                Prev
               </Button>
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-                className="h-8 gap-1"
               >
-                <span>Next</span>
-                <ChevronRight className="h-3.5 w-3.5" />
+                Next
+                <ChevronRight className="h-3.5 w-3.5 ml-1" />
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
 
-      {/* Log Detail Modal */}
+      {/* Trace Inspector Dialog */}
       <Dialog
         open={!!selectedRequestId}
         onClose={() => setSelectedRequestId(null)}
-        title="Request Trace Details"
-        description="Comprehensive execution metadata and candidate failover journey."
+        title="Execution & Failover Trace"
+        description={selectedRequestId ? `Request ID: ${selectedRequestId}` : undefined}
+        size="lg"
       >
-        {isDetailLoading || !logDetail ? (
-          <div className="space-y-3 py-4">
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-20 w-full" />
+        {isDetailLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-32 w-full" />
           </div>
-        ) : (
-          <div className="space-y-4 mt-2 max-h-[70vh] overflow-y-auto pr-1">
-            {/* Header meta */}
-            <div className="rounded-lg border bg-muted/20 p-3 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Request ID:</span>
-                <div className="flex items-center gap-1 font-mono font-bold text-foreground">
-                  <span>{logDetail.log.request_id}</span>
-                  <button
-                    onClick={() => handleCopy(logDetail.log.request_id)}
-                    className="p-1 hover:text-primary"
-                    title="Copy ID"
-                  >
-                    {copiedId ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-                  </button>
+        ) : logDetail?.log ? (
+          <div className="space-y-5">
+            {/* Summary Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 border border-border rounded bg-surface-subtle divide-y sm:divide-y-0 sm:divide-x divide-border">
+              <div className="px-3.5 py-2.5">
+                <span className="block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Outcome
+                </span>
+                <div className="mt-1">
+                  <StatusBadge status={logDetail.log.status} />
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t">
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">HTTP Status</span>
-                  <span className="font-mono font-bold">{logDetail.log.status_code}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">Latency</span>
-                  <span className="font-mono">{Math.round(logDetail.log.latency_ms)}ms</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">Tokens (Prompt / Comp)</span>
-                  <span className="font-mono">
-                    {logDetail.log.prompt_tokens} / {logDetail.log.completion_tokens} (Total: {logDetail.log.total_tokens})
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">Est. Cost</span>
-                  <span className="font-mono">${logDetail.log.estimated_cost_usd.toFixed(6)}</span>
-                </div>
+              <div className="px-3.5 py-2.5">
+                <span className="block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Latency
+                </span>
+                <span className="mt-1 block font-mono text-sm font-semibold tabular-nums text-foreground">
+                  {formatLatency(logDetail.log.latency_ms)}
+                </span>
               </div>
-
-              {logDetail.log.error_message && (
-                <div className="pt-2 border-t">
-                  <span className="text-destructive font-medium block text-[11px]">Error Message:</span>
-                  <p className="font-mono text-destructive text-[11px] mt-0.5 break-all">
-                    {logDetail.log.error_message}
-                  </p>
-                </div>
-              )}
+              <div className="px-3.5 py-2.5">
+                <span className="block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Tokens
+                </span>
+                <span className="mt-1 block font-mono text-sm font-semibold tabular-nums text-foreground">
+                  {(logDetail.log.total_tokens || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="px-3.5 py-2.5">
+                <span className="block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Est. Cost
+                </span>
+                <span className="mt-1 block font-mono text-sm font-semibold tabular-nums text-foreground">
+                  {formatCurrency(logDetail.log.estimated_cost_usd)}
+                </span>
+              </div>
             </div>
 
-            {/* Candidate Routing Journey */}
-            <div className="space-y-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
-                Routing Attempt Journey ({logDetail.attempts.length} {logDetail.attempts.length === 1 ? 'attempt' : 'attempts'})
-              </span>
+            {/* Metadata Grid */}
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs rounded border border-border p-3.5">
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Requested Target
+                </dt>
+                <dd className="mt-0.5 font-mono text-foreground">{logDetail.log.requested_model}</dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Resolved Target
+                </dt>
+                <dd className="mt-0.5 font-mono text-route">
+                  {logDetail.log.resolved_model || '—'}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Selected Provider
+                </dt>
+                <dd className="mt-0.5 font-mono uppercase text-foreground">
+                  {logDetail.log.selected_provider || '—'}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Timestamp
+                </dt>
+                <dd className="mt-0.5 font-mono text-foreground">
+                  {formatDate(logDetail.log.created_at)}
+                </dd>
+              </div>
+              {(logDetail.log.error_category || logDetail.log.error_message) && (
+                <div className="sm:col-span-2 border-t border-border pt-2.5">
+                  <dt className="font-mono text-[10px] uppercase tracking-wider text-status-err">
+                    Terminal Error ({logDetail.log.error_category || 'error'})
+                  </dt>
+                  <dd className="mt-1 font-mono text-xs text-status-err break-words">
+                    {logDetail.log.error_message}
+                  </dd>
+                </div>
+              )}
+            </dl>
 
-              {logDetail.attempts.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No attempt traces logged for this request.</p>
+            {/* Vertical Attempt Timeline */}
+            <div>
+              <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                Routing Attempt Timeline ({(logDetail.attempts || []).length} hops)
+              </h3>
+              {(logDetail.attempts || []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No granular attempt records attached to this log entry.
+                </p>
               ) : (
-                <div className="space-y-2">
-                  {logDetail.attempts.map((att, idx) => {
-                    const isSuccess = att.result === 'success';
-                    return (
-                      <div
-                        key={idx}
-                        className={`rounded-lg border p-3 text-xs space-y-1.5 ${
-                          isSuccess
-                            ? 'border-emerald-500/30 bg-emerald-500/5'
-                            : 'border-destructive/30 bg-destructive/5'
+                <ol className="relative border-l border-border ml-3 space-y-4">
+                  {logDetail.attempts.map((attempt, idx) => (
+                    <li key={attempt.id || idx} className="pl-5 relative">
+                      <span
+                        className={`absolute -left-[9px] top-1 flex h-4 w-4 items-center justify-center rounded-full border font-mono text-[9px] font-bold ${
+                          attempt.status === 'success'
+                            ? 'border-status-ok bg-card text-status-ok'
+                            : 'border-status-err bg-card text-status-err'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge variant={isSuccess ? 'success' : 'destructive'} className="text-[10px]">
-                              Attempt #{att.attempt_number}
-                            </Badge>
-                            <span className="font-semibold text-foreground">
-                              {att.provider_name} / {att.model_identifier}
+                        {attempt.attempt_number || idx + 1}
+                      </span>
+                      <div className="rounded border border-border bg-card p-3 space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 font-mono text-xs">
+                            <span className="font-semibold uppercase text-foreground">
+                              {attempt.provider_name || 'provider'}
                             </span>
+                            <span className="text-muted-foreground">/</span>
+                            <span className="text-route">{attempt.model_identifier}</span>
                           </div>
-                          <span className="font-mono text-muted-foreground">
-                            {att.latency_ms ? `${Math.round(att.latency_ms)}ms` : ''}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                              {formatLatency(attempt.latency_ms)}
+                            </span>
+                            <StatusBadge status={attempt.status} />
+                          </div>
                         </div>
-
-                        <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-muted-foreground">
-                          {att.credential_label && <span>Key: {att.credential_label}</span>}
-                          {att.status_code && <span>HTTP {att.status_code}</span>}
-                          {att.error_category && <span className="text-destructive">Category: {att.error_category}</span>}
-                          {att.circuit_breaker_state && <span>Breaker: {att.circuit_breaker_state}</span>}
-                        </div>
-
-                        {att.error_message && (
-                          <p className="text-[11px] text-destructive font-mono break-all">
-                            {att.error_message}
-                          </p>
+                        {attempt.credential_label && (
+                          <div className="font-mono text-[11px] text-muted-foreground">
+                            Credential: {attempt.credential_label}
+                          </div>
                         )}
-
-                        {att.cooldown_applied && (
-                          <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 text-[11px] font-medium">
-                            <Flame className="h-3 w-3" />
-                            <span>Placed in cooldown for {att.cooldown_seconds}s</span>
+                        {attempt.error_message && (
+                          <div className="font-mono text-[11px] text-status-err bg-status-err/10 rounded px-2 py-1 mt-1">
+                            {attempt.error_category ? `[${attempt.error_category}] ` : ''}
+                            {attempt.error_message}
                           </div>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
+                    </li>
+                  ))}
+                </ol>
               )}
             </div>
-
-            <div className="flex justify-end pt-3 border-t">
-              <Button variant="outline" size="sm" onClick={() => setSelectedRequestId(null)}>
-                Close
-              </Button>
-            </div>
           </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">Unable to retrieve trace details.</p>
         )}
       </Dialog>
     </div>
   );
 }
+
+export default RequestLogs;

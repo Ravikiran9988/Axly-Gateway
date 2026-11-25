@@ -161,11 +161,22 @@ async def get_credential_health(
     stmt = select(CredentialHealth).where(CredentialHealth.credential_id == credential_id)
     health = (await db.execute(stmt)).scalar_one_or_none()
     if not health:
-        raise APIException(
-            code="HEALTH_NOT_FOUND",
-            message="Health record not found for credential",
-            status_code=status.HTTP_404_NOT_FOUND,
+        cred_stmt = select(ProviderCredential).where(ProviderCredential.id == credential_id)
+        cred = (await db.execute(cred_stmt)).scalar_one_or_none()
+        if not cred:
+            raise APIException(
+                code="HEALTH_NOT_FOUND",
+                message="Health record not found for credential",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        health = CredentialHealth(
+            credential_id=cred.id,
+            status="healthy" if cred.is_active else "disabled",
         )
+        db.add(health)
+        await db.commit()
+        await db.refresh(health)
+
     return APIResponse(data=CredentialHealthResponse.model_validate(health))
 
 

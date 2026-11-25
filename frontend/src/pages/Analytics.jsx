@@ -1,21 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  BarChart3,
-  TrendingUp,
-  Clock,
-  Coins,
-  ShieldAlert,
-  Download,
-  Calendar,
-  Layers,
-  Zap,
-  Activity,
-  CheckCircle2,
-  XCircle,
-  Cpu,
-} from 'lucide-react';
-import {
   ResponsiveContainer,
   AreaChart,
   Area,
@@ -27,356 +12,491 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
-  PieChart,
-  Pie,
   Cell,
 } from 'recharts';
-
+import { Download, RefreshCw, Activity } from 'lucide-react';
 import { analyticsApi } from '../api/analytics';
 import { PageHeader } from '../components/layout/PageHeader';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
+import { Tabs, TabsList, TabsTrigger } from '../components/ui/Tabs';
+import { TimetableStrip, TimetableCell } from '../components/ui/Timetable';
+import {
+  ChartPanel,
+  SwissChartTooltip,
+  CHART_COLORS,
+  PROVIDER_PALETTE,
+} from '../components/ui/ChartCard';
 import { Skeleton } from '../components/ui/Skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '../components/ui/Table';
+import { useToast } from '../components/ui/Toast';
+import { formatCurrency } from '../lib/utils';
 
 const TIME_RANGES = [
-  { label: '24 Hours', value: '24h' },
-  { label: '7 Days', value: '7d' },
-  { label: '30 Days', value: '30d' },
-  { label: '90 Days', value: '90d' },
-  { label: 'All Time', value: 'all' },
+  { label: '24H', value: '24h' },
+  { label: '7D', value: '7d' },
+  { label: '30D', value: '30d' },
+  { label: 'ALL', value: 'all' },
 ];
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
-
 export function Analytics() {
-  const [timeRange, setTimeRange] = useState('7d');
+  const { addToast } = useToast();
+  const [timeRange, setTimeRange] = useState('24h');
 
-  const { data: overview, isLoading: isOverviewLoading } = useQuery({
-    queryKey: ['analyticsOverview', timeRange],
+  const interval = timeRange === '24h' ? 'hour' : 'day';
+
+  const {
+    data: overview,
+    isLoading: isOverviewLoading,
+    refetch: refetchOverview,
+    isFetching: isFetchingOverview,
+  } = useQuery({
+    queryKey: ['analytics-overview', timeRange],
     queryFn: () => analyticsApi.getOverview(timeRange),
   });
 
-  const { data: timeseries = [], isLoading: isTimeseriesLoading } = useQuery({
-    queryKey: ['analyticsTimeseries', timeRange],
-    queryFn: () => analyticsApi.getTimeseries(timeRange, timeRange === '24h' ? 'hour' : 'day'),
+  const {
+    data: timeseries = [],
+    isLoading: isTimeseriesLoading,
+    refetch: refetchTimeseries,
+  } = useQuery({
+    queryKey: ['analytics-timeseries', timeRange, interval],
+    queryFn: () => analyticsApi.getTimeseries(timeRange, interval),
   });
 
-  const { data: breakdown = {}, isLoading: isBreakdownLoading } = useQuery({
-    queryKey: ['analyticsBreakdown', timeRange],
+  const {
+    data: breakdown = {},
+    isLoading: isBreakdownLoading,
+    refetch: refetchBreakdown,
+  } = useQuery({
+    queryKey: ['analytics-breakdown', timeRange],
     queryFn: () => analyticsApi.getBreakdown(timeRange),
   });
 
-  const handleExportSummary = () => {
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      'Metric,Value\n' +
-      `Time Range,${timeRange}\n` +
-      `Total Requests,${overview?.total_requests || 0}\n` +
-      `Successful Requests,${overview?.successful_requests || 0}\n` +
-      `Failed Requests,${overview?.failed_requests || 0}\n` +
-      `Success Rate,${overview?.success_rate || 100}%\n` +
-      `Total Tokens,${overview?.total_tokens || 0}\n` +
-      `Estimated Cost ($),${overview?.estimated_cost_usd || 0}\n` +
-      `Avg Latency (ms),${overview?.avg_latency_ms || 0}\n` +
-      `P50 Latency (ms),${overview?.p50_latency_ms || 0}\n` +
-      `P95 Latency (ms),${overview?.p95_latency_ms || 0}\n` +
-      `P99 Latency (ms),${overview?.p99_latency_ms || 0}\n` +
-      `Failover Count,${overview?.failover_count || 0}\n`;
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `axly_analytics_summary_${timeRange}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleRefresh = () => {
+    refetchOverview();
+    refetchTimeseries();
+    refetchBreakdown();
   };
+
+  const handleExportSummary = () => {
+    const byProvider = breakdown?.by_provider || [];
+    const header = ['Provider', 'Requests', 'Share (%)', 'Tokens', 'Estimated Cost (USD)'];
+    const totalReqs = Math.max(1, overview?.total_requests || 0);
+    const rows = byProvider.map((item) => [
+      item.name,
+      item.requests || 0,
+      (((item.requests || 0) / totalReqs) * 100).toFixed(1),
+      item.tokens || 0,
+      Number(item.cost_usd || 0).toFixed(6),
+    ]);
+
+    const csvLines = [
+      `# AXLY Gateway Analytics Summary (${timeRange})`,
+      `# Total Requests,${overview?.total_requests || 0}`,
+      `# Success Rate,${overview?.success_rate ?? 0}%`,
+      `# Total Tokens,${overview?.total_tokens || 0}`,
+      `# Estimated Cost USD,${Number(overview?.estimated_cost_usd || 0).toFixed(6)}`,
+      header.join(','),
+      ...rows.map((r) => r.join(',')),
+    ];
+
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `axly-analytics-${timeRange}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+    addToast(`Exported ${timeRange.toUpperCase()} analytics CSV`, 'success');
+  };
+
+  const totalReq = overview?.total_requests || 0;
+  const successRate = overview?.success_rate !== undefined ? overview.success_rate : 100;
+  const byProvider = breakdown?.by_provider || [];
+  const byModel = breakdown?.by_model || [];
+  const byStatus = breakdown?.by_status || [];
+  const byErrorCategory = breakdown?.by_error_category || [];
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <PageHeader
-          title="Analytics & Telemetry"
-          description="In-depth aggregations across request volume, token throughput, latency percentiles, and provider reliability."
-        />
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-lg border bg-card p-1 shadow-sm">
-            {TIME_RANGES.map((tr) => (
-              <button
-                key={tr.value}
-                onClick={() => setTimeRange(tr.value)}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                  timeRange === tr.value
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tr.label}
-              </button>
-            ))}
+      <PageHeader
+        title="Analytics"
+        description="Traffic throughput, percentile latency distribution, per-model volume, and provider cost attribution across selected windows."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Tabs value={timeRange} onValueChange={setTimeRange} variant="segmented">
+              <TabsList>
+                {TIME_RANGES.map((tr) => (
+                  <TabsTrigger key={tr.value} value={tr.value} className="font-mono text-[11px]">
+                    {tr.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isFetchingOverview}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isFetchingOverview ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportSummary}>
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              Export CSV
+            </Button>
           </div>
+        }
+      />
 
-          <Button variant="outline" size="sm" onClick={handleExportSummary} className="h-9 gap-1.5">
-            <Download className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
+      {/* Rule-Divided Percentile & Token KPI Strip */}
+      <TimetableStrip>
+        <TimetableCell
+          label="Total Traffic"
+          tag={timeRange.toUpperCase()}
+          loading={isOverviewLoading}
+          value={totalReq.toLocaleString()}
+          subtext={`${successRate}% success · ${overview?.failover_count || 0} failovers`}
+        />
+        <TimetableCell
+          label="P50 Latency"
+          tag="PERCENTILES"
+          loading={isOverviewLoading}
+          value={`${Math.round(overview?.p50_latency_ms || overview?.avg_latency_ms || 0)}ms`}
+          subtext={`P95: ${Math.round(overview?.p95_latency_ms || 0)}ms · P99: ${Math.round(overview?.p99_latency_ms || 0)}ms`}
+        />
+        <TimetableCell
+          label="Token Volume"
+          tag="I/O"
+          loading={isOverviewLoading}
+          value={(overview?.total_tokens || 0).toLocaleString()}
+          subtext={`${(overview?.prompt_tokens || 0).toLocaleString()} in · ${(overview?.completion_tokens || 0).toLocaleString()} out`}
+        />
+        <TimetableCell
+          label="Estimated Spend"
+          tag="CATALOG"
+          loading={isOverviewLoading}
+          value={formatCurrency(overview?.estimated_cost_usd || 0)}
+          subtext={`${overview?.failed_requests || 0} failed completions`}
+          tone={(overview?.failed_requests || 0) > 0 ? 'warn' : 'default'}
+        />
+      </TimetableStrip>
+
+      {/* Primary Time Series Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <ChartPanel
+          title="Request Throughput & Failures"
+          subtitle="Completed vs failed inference executions per time bucket."
+          rightMeta={`${interval.toUpperCase()} BUCKETS`}
+        >
+          {isTimeseriesLoading ? (
+            <Skeleton className="h-60 w-full" />
+          ) : timeseries.length > 0 ? (
+            <div className="h-60 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeseries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="timestamp"
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={{ stroke: 'hsl(var(--border))' }}
+                    tickLine={false}
+                    tickFormatter={(v) => (v && v.includes(' ') ? v.split(' ')[1] : v)}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={false}
+                    tickLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip content={<SwissChartTooltip />} />
+                  <Area
+                    type="monotone"
+                    dataKey="successful"
+                    name="Successful"
+                    stroke={CHART_COLORS.ok}
+                    strokeWidth={2}
+                    fill={CHART_COLORS.ok}
+                    fillOpacity={0.14}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="failed"
+                    name="Failed"
+                    stroke={CHART_COLORS.err}
+                    strokeWidth={2}
+                    fill={CHART_COLORS.err}
+                    fillOpacity={0.14}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-60 items-center justify-center font-mono text-xs text-muted-foreground">
+              No request telemetry recorded for this period.
+            </div>
+          )}
+        </ChartPanel>
+
+        <ChartPanel
+          title="Latency & Token Velocity"
+          subtitle="Mean round-trip response latency (ms) and failover spikes."
+          rightMeta={`MEAN ${Math.round(overview?.avg_latency_ms || 0)}ms`}
+        >
+          {isTimeseriesLoading ? (
+            <Skeleton className="h-60 w-full" />
+          ) : timeseries.length > 0 ? (
+            <div className="h-60 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={timeseries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="timestamp"
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={{ stroke: 'hsl(var(--border))' }}
+                    tickLine={false}
+                    tickFormatter={(v) => (v && v.includes(' ') ? v.split(' ')[1] : v)}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    content={
+                      <SwissChartTooltip
+                        valueFormatter={(v, n) =>
+                          n.includes('Latency') ? `${Math.round(v)}ms` : Number(v).toLocaleString()
+                        }
+                      />
+                    }
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="avg_latency_ms"
+                    name="Mean Latency (ms)"
+                    stroke={CHART_COLORS.route}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="failovers"
+                    name="Failovers"
+                    stroke={CHART_COLORS.warn}
+                    strokeWidth={1.75}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-60 items-center justify-center font-mono text-xs text-muted-foreground">
+              No latency observations available.
+            </div>
+          )}
+        </ChartPanel>
+      </div>
+
+      {/* Model Volume + Status/Error Distribution */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <ChartPanel
+          className="lg:col-span-7"
+          title="Model Demand Distribution"
+          subtitle="Request volume routed per resolved catalog model."
+        >
+          {isBreakdownLoading ? (
+            <Skeleton className="h-60 w-full" />
+          ) : byModel.length > 0 ? (
+            <div className="h-60 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={byModel.slice(0, 8)}
+                  layout="vertical"
+                  margin={{ top: 4, right: 16, left: 16, bottom: 4 }}
+                >
+                  <CartesianGrid strokeDasharray="2 2" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={{ stroke: 'hsl(var(--border))' }}
+                    tickLine={false}
+                    allowDecimals={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={150}
+                    tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip content={<SwissChartTooltip />} />
+                  <Bar dataKey="requests" name="Requests" radius={[0, 2, 2, 0]}>
+                    {byModel.slice(0, 8).map((_, idx) => (
+                      <Cell key={idx} fill={PROVIDER_PALETTE[idx % PROVIDER_PALETTE.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-60 items-center justify-center font-mono text-xs text-muted-foreground">
+              No per-model completions recorded.
+            </div>
+          )}
+        </ChartPanel>
+
+        <ChartPanel
+          className="lg:col-span-5"
+          title="Outcome & Failure Classification"
+          subtitle="Completion statuses and classified error taxonomy."
+        >
+          {isBreakdownLoading ? (
+            <Skeleton className="h-60 w-full" />
+          ) : byStatus.length === 0 && byErrorCategory.length === 0 ? (
+            <div className="flex h-60 flex-col items-center justify-center text-center text-xs text-muted-foreground font-mono">
+              <Activity className="h-5 w-5 mb-2 opacity-60" />
+              No status classifications in window.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {byStatus.length > 0 && (
+                <div className="space-y-2">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Status Mix
+                  </span>
+                  <div className="space-y-2">
+                    {byStatus.map((item) => {
+                      const pct = totalReq > 0 ? Math.round(((item.count || 0) / totalReq) * 100) : 0;
+                      const isOk = String(item.status).toLowerCase() === 'success';
+                      return (
+                        <div key={item.status} className="space-y-1">
+                          <div className="flex justify-between font-mono text-xs">
+                            <span className="uppercase text-foreground">{item.status}</span>
+                            <span className="tabular-nums text-muted-foreground">
+                              {(item.count || 0).toLocaleString()} ({pct}%)
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-sm bg-surface-subtle overflow-hidden">
+                            <div
+                              className={isOk ? 'h-full bg-status-ok' : 'h-full bg-status-err'}
+                              style={{ width: `${Math.max(2, pct)}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {byErrorCategory.length > 0 && (
+                <div className="border-t border-border pt-3 space-y-2">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Error Categories
+                  </span>
+                  <div className="divide-y divide-border rounded border border-border">
+                    {byErrorCategory.map((err) => (
+                      <div
+                        key={err.category}
+                        className="flex items-center justify-between px-3 py-2 font-mono text-xs"
+                      >
+                        <span className="text-status-err truncate">{err.category}</span>
+                        <span className="font-semibold tabular-nums text-foreground">
+                          {(err.count || 0).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </ChartPanel>
+      </div>
+
+      {/* Provider Performance & Cost Attribution Table */}
+      <section className="rounded border border-border bg-card overflow-hidden">
+        <div className="border-b border-border px-4 py-3.5 sm:px-5 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold tracking-tight text-foreground">
+              Provider Allocation & Cost Ledger
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Aggregated completions, traffic share, token consumption, and estimated cost per upstream provider.
+            </p>
+          </div>
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {byProvider.length} active
+          </span>
         </div>
-      </div>
 
-      {/* KPI Stats Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Request Volume</CardTitle>
-            <Activity className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            {isOverviewLoading ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div>
-                <div className="text-2xl font-bold font-mono tracking-tight">
-                  {(overview?.total_requests || 0).toLocaleString()}
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {overview?.success_rate ?? 100}% success rate
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Latency Percentiles</CardTitle>
-            <Clock className="h-4 w-4 text-indigo-500" />
-          </CardHeader>
-          <CardContent>
-            {isOverviewLoading ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div>
-                <div className="text-2xl font-bold font-mono tracking-tight">
-                  {overview?.avg_latency_ms ? `${Math.round(overview.avg_latency_ms)}ms` : '0ms'}
-                </div>
-                <p className="mt-1 text-[11px] font-mono text-muted-foreground">
-                  P50: {overview?.p50_latency_ms || 0}ms • P95: {overview?.p95_latency_ms || 0}ms
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Token Throughput</CardTitle>
-            <Coins className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            {isOverviewLoading ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div>
-                <div className="text-2xl font-bold font-mono tracking-tight">
-                  {(overview?.total_tokens || 0).toLocaleString()}
-                </div>
-                <p className="mt-1 text-[11px] font-mono text-muted-foreground">
-                  In: {(overview?.prompt_tokens || 0).toLocaleString()} • Out: {(overview?.completion_tokens || 0).toLocaleString()}
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Failover Reliability</CardTitle>
-            <Zap className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            {isOverviewLoading ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div>
-                <div className="text-2xl font-bold font-mono tracking-tight">
-                  {overview?.failover_count || 0}
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  automatic cross-provider recoveries
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Chart 1: Volume & Errors */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">Request Volume & Status Distribution</CardTitle>
-            <CardDescription className="text-xs">
-              Throughput and error spikes over the selected timeframe.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isTimeseriesLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : timeseries.length > 0 ? (
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={timeseries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                    <XAxis
-                      dataKey="timestamp"
-                      tick={{ fontSize: 11 }}
-                      tickFormatter={(v) => (timeRange === '24h' ? v.split(' ')[1] : v.split('-').slice(1).join('/'))}
-                    />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        borderColor: 'hsl(var(--border))',
-                        fontSize: '12px',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    <Area type="monotone" dataKey="successful" name="Success" stroke="#10b981" fill="#10b981" fillOpacity={0.2} />
-                    <Area type="monotone" dataKey="failed" name="Errors" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
-                No telemetry recorded for this timeframe.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Chart 2: Latency Trends */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">Average Latency Response (ms)</CardTitle>
-            <CardDescription className="text-xs">
-              End-to-end response times across upstream provider round-trips.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isTimeseriesLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : timeseries.length > 0 ? (
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={timeseries} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                    <XAxis
-                      dataKey="timestamp"
-                      tick={{ fontSize: 11 }}
-                      tickFormatter={(v) => (timeRange === '24h' ? v.split(' ')[1] : v.split('-').slice(1).join('/'))}
-                    />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        borderColor: 'hsl(var(--border))',
-                        fontSize: '12px',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    <Line type="monotone" dataKey="avg_latency_ms" name="Avg Latency (ms)" stroke="#8b5cf6" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
-                No latency points available.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Chart 3: Model Usage Popularity */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">Model Usage Breakdown</CardTitle>
-            <CardDescription className="text-xs">
-              Top models queried across client applications.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isBreakdownLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : breakdown?.by_model && breakdown.by_model.length > 0 ? (
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={breakdown.by_model} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                    <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={100} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        borderColor: 'hsl(var(--border))',
-                        fontSize: '12px',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Bar dataKey="requests" name="Requests" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
-                No model telemetry available.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Chart 4: Error Categories Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold">Error Classifications</CardTitle>
-            <CardDescription className="text-xs">
-              Breakdown of upstream error categories that triggered failover or cooldowns.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isBreakdownLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : breakdown?.by_error_category && breakdown.by_error_category.length > 0 ? (
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={breakdown.by_error_category} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                    <XAxis dataKey="category" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        borderColor: 'hsl(var(--border))',
-                        fontSize: '12px',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Bar dataKey="count" name="Count" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
-                Zero upstream errors recorded. All candidate attempts succeeded!
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        {isBreakdownLoading ? (
+          <div className="p-4 space-y-2">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ) : byProvider.length === 0 ? (
+          <div className="p-8 text-center font-mono text-xs text-muted-foreground">
+            No provider performance records available in this window.
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Provider</TableHead>
+                <TableHead className="text-right">Requests</TableHead>
+                <TableHead className="text-right">Traffic Share</TableHead>
+                <TableHead className="text-right">Tokens Consumed</TableHead>
+                <TableHead className="text-right">Est. Cost (USD)</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {byProvider.map((p, idx) => {
+                const share = totalReq > 0 ? ((p.requests || 0) / totalReq) * 100 : 0;
+                return (
+                  <TableRow key={p.name}>
+                    <TableCell>
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className="h-2.5 w-2.5 rounded-[1px] shrink-0"
+                          style={{ backgroundColor: PROVIDER_PALETTE[idx % PROVIDER_PALETTE.length] }}
+                        />
+                        <span className="font-semibold text-foreground">{p.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums text-foreground">
+                      {(p.requests || 0).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
+                      {share.toFixed(1)}%
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums text-foreground">
+                      {(p.tokens || 0).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums font-semibold text-foreground">
+                      {formatCurrency(p.cost_usd || 0)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </section>
     </div>
   );
 }
+
+export default Analytics;

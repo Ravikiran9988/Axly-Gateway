@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   GitBranch,
   Plus,
@@ -7,37 +8,46 @@ import {
   Trash2,
   ArrowDown,
   ArrowUp,
-  ArrowUpDown,
-  Check,
-  Layers,
-  Clock,
-  Shield,
-  Zap,
   Sliders,
-  Sparkles,
+  ShieldAlert,
 } from 'lucide-react';
 
 import { routingApi } from '../api/routing';
 import { providersApi } from '../api/providers';
 import { modelsApi } from '../api/models';
+import { circuitBreakersApi } from '../api/circuitBreakers';
+import { quotaGroupsApi } from '../api/quotaGroups';
 import { PageHeader } from '../components/layout/PageHeader';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { StatusBadge } from '../components/ui/StatusBadge';
 import { Dialog } from '../components/ui/Dialog';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Switch } from '../components/ui/Switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs';
+import { TimetableStrip, TimetableCell } from '../components/ui/Timetable';
+import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
+import { FallbackRecoveryPanel } from '../components/control/FallbackRecoveryPanel';
 import { useToast } from '../components/ui/Toast';
+import { cn } from '../lib/utils';
 
-export function Routing() {
+export function Routing({ initialTab }) {
   const queryClient = useQueryClient();
-  const { addToast } = useToast();
+  const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState('aliases');
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(initialTab || tabParam || 'aliases');
   const [selectedAliasId, setSelectedAliasId] = useState(null);
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+    else if (tabParam && ['aliases', 'profiles', 'recovery'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [initialTab, tabParam]);
 
   // Modals
   const [isAddAliasOpen, setIsAddAliasOpen] = useState(false);
@@ -46,10 +56,11 @@ export function Routing() {
 
   const [isAddProfileOpen, setIsAddProfileOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
+  const [deletingProfile, setDeletingProfile] = useState(null);
 
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
 
-  // Form states - Alias
+  // Alias form
   const [formAliasName, setFormAliasName] = useState('');
   const [formAliasDesc, setFormAliasDesc] = useState('');
   const [formAliasProfileId, setFormAliasProfileId] = useState('');
@@ -57,19 +68,19 @@ export function Routing() {
   const [formAliasTimeout, setFormAliasTimeout] = useState(30.0);
   const [formAliasEnabled, setFormAliasEnabled] = useState(true);
 
-  // Form states - Profile
+  // Profile form (matched directly to backend RoutingProfileCreate/Patch schema)
   const [formProfileName, setFormProfileName] = useState('');
   const [formProfileDesc, setFormProfileDesc] = useState('');
   const [formProfileStrategy, setFormProfileStrategy] = useState('priority');
   const [formProfileMaxAttempts, setFormProfileMaxAttempts] = useState(3);
-  const [formProfileTimeout, setFormProfileTimeout] = useState(30.0);
+  const [formProfileRetryAfterCooldown, setFormProfileRetryAfterCooldown] = useState(true);
   const [formProfileIsDefault, setFormProfileIsDefault] = useState(false);
 
-  // Form states - Candidate Add
+  // Add Candidate form
   const [candProviderId, setCandProviderId] = useState('');
   const [candModelId, setCandModelId] = useState('');
+  const [candWeight, setCandWeight] = useState(100);
 
-  // Queries
   const { data: aliases = [], isLoading: isAliasesLoading } = useQuery({
     queryKey: ['routingAliases'],
     queryFn: routingApi.listAliases,
@@ -90,75 +101,94 @@ export function Routing() {
     queryFn: () => modelsApi.listModels(),
   });
 
-  // Selected Alias object
-  const currentAlias =
-    aliases.find((a) => a.id === selectedAliasId) || aliases[0] || null;
+  const { data: circuitBreakers = [] } = useQuery({
+    queryKey: ['circuitBreakers'],
+    queryFn: circuitBreakersApi.listCircuitBreakers,
+    refetchInterval: 10000,
+  });
 
-  // Mutations
+  const { data: quotaGroups = [] } = useQuery({
+    queryKey: ['quotaGroups'],
+    queryFn: quotaGroupsApi.listQuotaGroups,
+    refetchInterval: 10000,
+  });
+
+  const currentAlias = aliases.find((a) => a.id === selectedAliasId) || aliases[0] || null;
+
   const createAliasMutation = useMutation({
     mutationFn: routingApi.createAlias,
     onSuccess: (newAlias) => {
       queryClient.invalidateQueries({ queryKey: ['routingAliases'] });
-      addToast(`Alias '${newAlias.alias_name}' created successfully`, 'success');
+      toast.success(`Alias '${newAlias.alias_name}' created`);
       setIsAddAliasOpen(false);
       setSelectedAliasId(newAlias.id);
       resetAliasForm();
     },
-    onError: (err) => {
-      addToast(err.message || 'Failed to create alias', 'error');
-    },
+    onError: (err) => toast.error(err.message || 'Failed to create alias'),
   });
 
   const updateAliasMutation = useMutation({
     mutationFn: ({ id, payload }) => routingApi.updateAlias(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routingAliases'] });
-      addToast('Alias updated successfully', 'success');
+      toast.success('Alias updated');
       setEditingAlias(null);
       resetAliasForm();
     },
-    onError: (err) => {
-      addToast(err.message || 'Failed to update alias', 'error');
-    },
+    onError: (err) => toast.error(err.message || 'Failed to update alias'),
   });
 
   const deleteAliasMutation = useMutation({
     mutationFn: routingApi.deleteAlias,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routingAliases'] });
-      addToast('Alias deleted permanently', 'success');
+      toast.success('Alias deleted');
       setDeletingAlias(null);
       setSelectedAliasId(null);
     },
-    onError: (err) => {
-      addToast(err.message || 'Failed to delete alias', 'error');
-    },
+    onError: (err) => toast.error(err.message || 'Failed to delete alias'),
   });
 
   const updateCandidatesMutation = useMutation({
-    mutationFn: ({ aliasId, candidates }) =>
-      routingApi.setAliasCandidates(aliasId, candidates),
+    mutationFn: ({ aliasId, candidates }) => routingApi.setAliasCandidates(aliasId, candidates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routingAliases'] });
-      addToast('Candidate failover order updated', 'success');
+      toast.success('Failover candidate chain updated');
       setIsAddCandidateOpen(false);
     },
-    onError: (err) => {
-      addToast(err.message || 'Failed to update candidates', 'error');
-    },
+    onError: (err) => toast.error(err.message || 'Failed to update candidate chain'),
   });
 
   const createProfileMutation = useMutation({
     mutationFn: routingApi.createProfile,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routingProfiles'] });
-      addToast('Routing profile created', 'success');
+      toast.success('Routing profile created');
       setIsAddProfileOpen(false);
       resetProfileForm();
     },
-    onError: (err) => {
-      addToast(err.message || 'Failed to create profile', 'error');
+    onError: (err) => toast.error(err.message || 'Failed to create profile'),
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: ({ id, payload }) => routingApi.updateProfile(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routingProfiles'] });
+      toast.success('Routing profile updated');
+      setEditingProfile(null);
+      resetProfileForm();
     },
+    onError: (err) => toast.error(err.message || 'Failed to update profile'),
+  });
+
+  const deleteProfileMutation = useMutation({
+    mutationFn: routingApi.deleteProfile,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routingProfiles'] });
+      toast.success('Routing profile deleted');
+      setDeletingProfile(null);
+    },
+    onError: (err) => toast.error(err.message || 'Failed to delete profile'),
   });
 
   const resetAliasForm = () => {
@@ -175,7 +205,7 @@ export function Routing() {
     setFormProfileDesc('');
     setFormProfileStrategy('priority');
     setFormProfileMaxAttempts(3);
-    setFormProfileTimeout(30.0);
+    setFormProfileRetryAfterCooldown(true);
     setFormProfileIsDefault(false);
   };
 
@@ -196,70 +226,94 @@ export function Routing() {
 
   const handleSaveAlias = (e) => {
     e.preventDefault();
+    const payload = {
+      alias_name: formAliasName.trim().toLowerCase(),
+      description: formAliasDesc.trim() || null,
+      profile_id: formAliasProfileId || null,
+      max_attempts: parseInt(formAliasMaxAttempts, 10) || 3,
+      timeout_seconds: parseFloat(formAliasTimeout) || 30.0,
+      is_enabled: formAliasEnabled,
+    };
+
     if (editingAlias) {
-      updateAliasMutation.mutate({
-        id: editingAlias.id,
-        payload: {
-          alias_name: formAliasName.trim(),
-          description: formAliasDesc || null,
-          profile_id: formAliasProfileId || null,
-          max_attempts: parseInt(formAliasMaxAttempts, 10),
-          timeout_seconds: parseFloat(formAliasTimeout),
-          is_enabled: formAliasEnabled,
-        },
-      });
+      updateAliasMutation.mutate({ id: editingAlias.id, payload });
     } else {
-      createAliasMutation.mutate({
-        alias_name: formAliasName.trim().toLowerCase(),
-        description: formAliasDesc || null,
-        profile_id: formAliasProfileId || null,
-        max_attempts: parseInt(formAliasMaxAttempts, 10),
-        timeout_seconds: parseFloat(formAliasTimeout),
-        is_enabled: formAliasEnabled,
-        candidates: [],
-      });
+      createAliasMutation.mutate({ ...payload, candidates: [] });
     }
   };
 
-  const handleMoveCandidate = (index, direction) => {
-    if (!currentAlias) return;
-    const items = [...currentAlias.candidates];
-    const targetIdx = index + direction;
-    if (targetIdx < 0 || targetIdx >= items.length) return;
+  const handleOpenEditProfile = (prof) => {
+    setEditingProfile(prof);
+    setFormProfileName(prof.name);
+    setFormProfileDesc(prof.description || '');
+    setFormProfileStrategy(prof.strategy || 'priority');
+    setFormProfileMaxAttempts(prof.max_attempts || 3);
+    setFormProfileRetryAfterCooldown(prof.retry_after_cooldown !== false);
+    setFormProfileIsDefault(!!prof.is_default);
+  };
 
-    const temp = items[index];
-    items[index] = items[targetIdx];
-    items[targetIdx] = temp;
+  const handleSaveProfile = (e) => {
+    e.preventDefault();
+    const payload = {
+      name: formProfileName.trim(),
+      description: formProfileDesc.trim() || null,
+      strategy: formProfileStrategy,
+      max_attempts: parseInt(formProfileMaxAttempts, 10) || 3,
+      retry_after_cooldown: formProfileRetryAfterCooldown,
+      is_default: formProfileIsDefault,
+    };
+    if (editingProfile) {
+      updateProfileMutation.mutate({ id: editingProfile.id, payload });
+    } else {
+      createProfileMutation.mutate(payload);
+    }
+  };
 
-    // Re-assign priorities 1, 2, 3...
-    const payload = items.map((c, i) => ({
+  const normalizeCandidatesPayload = (items) =>
+    items.map((c, i) => ({
       provider_id: c.provider_id,
       model_id: c.model_id,
       priority: i + 1,
-      weight: c.weight || 1.0,
-      is_enabled: c.is_enabled,
+      weight: Math.min(100, Math.max(1, parseInt(c.weight, 10) || 100)),
+      is_active: c.is_active !== false,
     }));
+
+  const sortedCandidates = currentAlias
+    ? [...(currentAlias.candidates || [])].sort((a, b) => a.priority - b.priority)
+    : [];
+
+  const handleMoveCandidate = (index, direction) => {
+    if (!currentAlias) return;
+    const items = [...sortedCandidates];
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= items.length) return;
+
+    const [moved] = items.splice(index, 1);
+    items.splice(targetIdx, 0, moved);
 
     updateCandidatesMutation.mutate({
       aliasId: currentAlias.id,
-      candidates: payload,
+      candidates: normalizeCandidatesPayload(items),
+    });
+  };
+
+  const handleToggleCandidateActive = (index) => {
+    if (!currentAlias) return;
+    const items = sortedCandidates.map((c, idx) =>
+      idx === index ? { ...c, is_active: !(c.is_active !== false) } : c
+    );
+    updateCandidatesMutation.mutate({
+      aliasId: currentAlias.id,
+      candidates: normalizeCandidatesPayload(items),
     });
   };
 
   const handleRemoveCandidate = (candidateId) => {
     if (!currentAlias) return;
-    const remaining = currentAlias.candidates.filter((c) => c.id !== candidateId);
-    const payload = remaining.map((c, i) => ({
-      provider_id: c.provider_id,
-      model_id: c.model_id,
-      priority: i + 1,
-      weight: c.weight || 1.0,
-      is_enabled: c.is_enabled,
-    }));
-
+    const remaining = sortedCandidates.filter((c) => c.id !== candidateId);
     updateCandidatesMutation.mutate({
       aliasId: currentAlias.id,
-      candidates: payload,
+      candidates: normalizeCandidatesPayload(remaining),
     });
   };
 
@@ -267,272 +321,318 @@ export function Routing() {
     e.preventDefault();
     if (!currentAlias || !candProviderId || !candModelId) return;
 
-    const existing = currentAlias.candidates || [];
-    const payload = [
-      ...existing.map((c, i) => ({
-        provider_id: c.provider_id,
-        model_id: c.model_id,
-        priority: i + 1,
-        weight: c.weight || 1.0,
-        is_enabled: c.is_enabled,
-      })),
+    const nextItems = [
+      ...sortedCandidates,
       {
         provider_id: candProviderId,
         model_id: candModelId,
-        priority: existing.length + 1,
-        weight: 1.0,
-        is_enabled: true,
+        priority: sortedCandidates.length + 1,
+        weight: Math.min(100, Math.max(1, parseInt(candWeight, 10) || 100)),
+        is_active: true,
       },
     ];
 
     updateCandidatesMutation.mutate({
       aliasId: currentAlias.id,
-      candidates: payload,
+      candidates: normalizeCandidatesPayload(nextItems),
     });
   };
 
-  // Filter models for candidate modal based on selected provider
+  const handleTabChange = (nextTab) => {
+    setActiveTab(nextTab);
+    setSearchParams({ tab: nextTab }, { replace: true });
+  };
+
   const candidateProviderModels = models.filter((m) => m.provider_id === candProviderId);
+  const openBreakersCount = circuitBreakers.filter((cb) => cb.state === 'OPEN').length;
+  const activeAliasesCount = aliases.filter((a) => a.is_enabled).length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <PageHeader
-          title="Routing & Failover"
-          description="Configure model aliases, candidate priority fallback orders, and reusable routing profiles."
-        />
-        <div className="flex items-center gap-2">
-          {activeTab === 'aliases' ? (
-            <Button onClick={handleOpenAddAlias} className="gap-2">
-              <Plus className="h-4 w-4" />
-              <span>New Alias</span>
-            </Button>
-          ) : (
-            <Button onClick={() => setIsAddProfileOpen(true)} className="gap-2">
-              <Plus className="h-4 w-4" />
+    <div className="space-y-5">
+      <PageHeader
+        title="Routing & Failover"
+        description="Configure model alias schedules, prioritized provider failover chains, routing profiles, and circuit-breaker recovery."
+        actions={
+          activeTab === 'profiles' ? (
+            <Button size="sm" onClick={() => { resetProfileForm(); setIsAddProfileOpen(true); }} className="gap-1.5">
+              <Plus className="h-3.5 w-3.5" />
               <span>New Profile</span>
             </Button>
-          )}
-        </div>
-      </div>
+          ) : (
+            <Button size="sm" onClick={handleOpenAddAlias} className="gap-1.5">
+              <Plus className="h-3.5 w-3.5" />
+              <span>New Alias</span>
+            </Button>
+          )
+        }
+      />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <TimetableStrip>
+        <TimetableCell
+          label="Model Aliases"
+          tag="ROUTES"
+          loading={isAliasesLoading}
+          value={`${activeAliasesCount} / ${aliases.length}`}
+          subtext="Active client targets"
+        />
+        <TimetableCell
+          label="Routing Profiles"
+          tag="POLICY"
+          loading={isProfilesLoading}
+          value={profiles.length}
+          subtext="Retry & strategy presets"
+        />
+        <TimetableCell
+          label="Circuit Breakers"
+          tag="PROTECTION"
+          value={openBreakersCount > 0 ? `${openBreakersCount} OPEN` : `${circuitBreakers.length} CLOSED`}
+          tone={openBreakersCount > 0 ? 'err' : 'ok'}
+          subtext="Automated outage isolation"
+        />
+        <TimetableCell
+          label="Quota Groups"
+          tag="SHARED POOL"
+          value={quotaGroups.length}
+          subtext={`${quotaGroups.filter((q) => q.status !== 'healthy').length} in cooldown`}
+        />
+      </TimetableStrip>
+
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="aliases" className="gap-2">
             <GitBranch className="h-3.5 w-3.5" />
-            <span>Model Aliases</span>
+            <span>Model Aliases ({aliases.length})</span>
           </TabsTrigger>
           <TabsTrigger value="profiles" className="gap-2">
             <Sliders className="h-3.5 w-3.5" />
-            <span>Routing Profiles</span>
+            <span>Routing Profiles ({profiles.length})</span>
+          </TabsTrigger>
+          <TabsTrigger value="recovery" className="gap-2">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            <span>Fallback &amp; Recovery</span>
           </TabsTrigger>
         </TabsList>
 
-        {/* TAB 1: MODEL ALIASES */}
-        <TabsContent value="aliases" className="space-y-6">
+        {/* TAB 1: ALIASES & FAILOVER CHAIN */}
+        <TabsContent value="aliases">
           {isAliasesLoading ? (
-            <Skeleton className="h-64 w-full rounded-xl" />
+            <Skeleton className="h-64 w-full" />
           ) : aliases.length === 0 ? (
-            <Card className="border-dashed p-8 text-center">
-              <GitBranch className="mx-auto h-10 w-10 text-muted-foreground" />
-              <h3 className="mt-3 text-base font-semibold">No Model Aliases Configured</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Create aliases like 'fast', 'smart', or 'coding' to automatically route across multi-provider candidates.
-              </p>
-              <Button onClick={handleOpenAddAlias} className="mt-4 gap-2">
-                <Plus className="h-4 w-4" />
-                <span>Create First Alias</span>
-              </Button>
-            </Card>
+            <EmptyState
+              icon={GitBranch}
+              title="No model aliases configured"
+              description="Define aliases like fast, smart, or coding mapped to prioritized cross-provider fallback chains."
+              actionLabel="Create First Alias"
+              onAction={handleOpenAddAlias}
+            />
           ) : (
-            <div className="grid gap-6 lg:grid-cols-12">
-              {/* Left Column: Aliases List (4 cols) */}
-              <div className="lg:col-span-4 space-y-3">
-                <div className="text-xs font-bold tracking-wider text-muted-foreground uppercase px-1">
-                  Configured Aliases
+            <div className="grid gap-5 lg:grid-cols-12">
+              {/* Left Rail: Alias Directory */}
+              <div className="lg:col-span-4 rounded border border-border bg-card divide-y divide-border overflow-hidden self-start">
+                <div className="bg-surface-subtle px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
+                  Configured Alias Directory
                 </div>
                 {aliases.map((alias) => {
                   const isSelected = currentAlias?.id === alias.id;
                   const candCount = alias.candidates?.length || 0;
                   return (
-                    <Card
+                    <button
+                      type="button"
                       key={alias.id}
                       onClick={() => setSelectedAliasId(alias.id)}
-                      className={`cursor-pointer transition-all ${
+                      className={cn(
+                        'w-full text-left px-4 py-3 transition-colors flex items-start justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                         isSelected
-                          ? 'border-primary shadow-sm bg-primary/[0.02]'
-                          : 'hover:border-muted-foreground/30'
-                      }`}
+                          ? 'bg-muted/70'
+                          : 'hover:bg-muted/35'
+                      )}
                     >
-                      <CardContent className="p-3.5">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm font-mono text-foreground">
-                                {alias.alias_name}
-                              </span>
-                              <Badge
-                                variant={alias.is_enabled ? 'success' : 'secondary'}
-                                className="text-[10px]"
-                              >
-                                {alias.is_enabled ? 'ACTIVE' : 'OFF'}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                              {alias.description || 'No description configured'}
-                            </p>
-                          </div>
-                          <Badge variant="outline" className="text-[10px] font-mono shrink-0">
-                            {candCount} {candCount === 1 ? 'candidate' : 'candidates'}
-                          </Badge>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          {isSelected && <span className="h-1.5 w-1.5 rounded-[1px] bg-primary shrink-0" />}
+                          <span className="font-mono text-sm font-bold text-foreground truncate">
+                            {alias.alias_name}
+                          </span>
+                          <StatusBadge status={alias.is_enabled ? 'active' : 'disabled'} />
                         </div>
-                      </CardContent>
-                    </Card>
+                        <p className="mt-1 text-xs text-muted-foreground truncate">
+                          {alias.description || 'Priority fallback sequence'}
+                        </p>
+                      </div>
+                      <span className="font-mono text-[11px] text-muted-foreground tabular-nums shrink-0 mt-0.5">
+                        {candCount} {candCount === 1 ? 'track' : 'tracks'}
+                      </span>
+                    </button>
                   );
                 })}
               </div>
 
-              {/* Right Column: Visualization & Candidate Chain (8 cols) */}
-              <div className="lg:col-span-8 space-y-4">
-                {currentAlias ? (
-                  <Card>
-                    <CardHeader className="border-b pb-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2.5">
-                            <CardTitle className="text-lg font-mono font-bold">
-                              {currentAlias.alias_name}
-                            </CardTitle>
-                            <Badge variant={currentAlias.is_enabled ? 'success' : 'secondary'}>
-                              {currentAlias.is_enabled ? 'Active' : 'Disabled'}
-                            </Badge>
-                          </div>
-                          <CardDescription className="text-xs mt-1">
-                            {currentAlias.description || 'Configured routing tier'} • Max attempts: {currentAlias.max_attempts} • Timeout: {currentAlias.timeout_seconds}s
-                          </CardDescription>
+              {/* Right Inspector: Visual Failover Track Chain */}
+              <div className="lg:col-span-8">
+                {currentAlias && (
+                  <section className="rounded border border-border bg-card overflow-hidden">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border px-5 py-4">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <h2 className="font-mono text-lg font-bold text-foreground">
+                            {currentAlias.alias_name}
+                          </h2>
+                          <StatusBadge status={currentAlias.is_enabled ? 'active' : 'disabled'} />
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setCandProviderId(providers[0]?.id || '');
-                              setCandModelId('');
-                              setIsAddCandidateOpen(true);
-                            }}
-                            className="gap-1.5 text-xs h-8"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            <span>Add Candidate</span>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenEditAlias(currentAlias)}
-                            className="h-8 w-8 text-muted-foreground"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeletingAlias(currentAlias)}
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-
-                    <CardContent className="p-6">
-                      <div className="space-y-2 mb-4">
-                        <span className="text-xs font-bold tracking-wider text-muted-foreground uppercase block">
-                          Visual Candidate Failover Chain
-                        </span>
-                        <p className="text-xs text-muted-foreground">
-                          Requests to <code className="font-mono text-primary font-bold">"{currentAlias.alias_name}"</code> attempt Candidate 1 first. If it encounters a retryable failure (such as rate limits or service outages), it automatically falls over in sequential priority order.
+                        <p className="mt-1 font-mono text-[11px] text-muted-foreground tabular-nums">
+                          Max Attempts: {currentAlias.max_attempts} · Timeout: {currentAlias.timeout_seconds}s
+                          {currentAlias.description ? ` · ${currentAlias.description}` : ''}
                         </p>
                       </div>
 
-                      {/* Visual Flow Representation */}
-                      {(!currentAlias.candidates || currentAlias.candidates.length === 0) ? (
-                        <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
-                          No candidates attached to this alias yet. Click "Add Candidate" above to add providers.
-                        </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setCandProviderId(providers[0]?.id || '');
+                            setCandModelId('');
+                            setCandWeight(100);
+                            setIsAddCandidateOpen(true);
+                          }}
+                          className="h-8 gap-1.5"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Add Track</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEditAlias(currentAlias)}
+                          aria-label={`Edit alias ${currentAlias.alias_name}`}
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeletingAlias(currentAlias)}
+                          className="hover:text-status-err"
+                          aria-label={`Delete alias ${currentAlias.alias_name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="p-5 space-y-4">
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Requests addressing <code className="font-mono text-foreground font-semibold">model=&quot;{currentAlias.alias_name}&quot;</code> execute Track 01 first, cascading down in strict priority sequence upon retryable upstream rate limits or outages.
+                      </p>
+
+                      {sortedCandidates.length === 0 ? (
+                        <EmptyState
+                          icon={GitBranch}
+                          title="No failover tracks attached"
+                          description="Add one or more provider models to activate this routing alias."
+                          actionLabel="Add First Track"
+                          onAction={() => {
+                            setCandProviderId(providers[0]?.id || '');
+                            setCandModelId('');
+                            setIsAddCandidateOpen(true);
+                          }}
+                        />
                       ) : (
-                        <div className="space-y-3">
-                          {currentAlias.candidates.map((cand, idx) => {
+                        <div className="space-y-2">
+                          {sortedCandidates.map((cand, idx) => {
                             const isFirst = idx === 0;
-                            const isLast = idx === currentAlias.candidates.length - 1;
-                            const provider = providers.find((p) => p.id === cand.provider_id) || cand.provider;
-                            const model = models.find((m) => m.id === cand.model_id) || cand.model;
+                            const isLast = idx === sortedCandidates.length - 1;
+                            const provider = providers.find((p) => p.id === cand.provider_id);
+                            const model = models.find((m) => m.id === cand.model_id);
+                            const providerDisplay = provider?.display_name || cand.provider_name || 'Provider';
+                            const modelIdText = model?.model_identifier || cand.model_identifier || 'Model';
+                            const active = cand.is_active !== false;
 
                             return (
                               <React.Fragment key={cand.id || idx}>
-                                <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-sm transition-all hover:border-primary/50">
-                                  {/* Priority Number */}
-                                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-mono text-xs font-bold">
-                                    {idx + 1}
+                                <div
+                                  className={cn(
+                                    'flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded border p-3.5 transition-colors',
+                                    isFirst && active
+                                      ? 'border-route/50 bg-route/5'
+                                      : 'border-border bg-background',
+                                    !active && 'opacity-55'
+                                  )}
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div
+                                      className={cn(
+                                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-sm border font-mono text-xs font-bold tabular-nums',
+                                        isFirst && active
+                                          ? 'border-route bg-route/15 text-route'
+                                          : 'border-border bg-card text-muted-foreground'
+                                      )}
+                                    >
+                                      {String(idx + 1).padStart(2, '0')}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-xs font-semibold text-foreground">
+                                          {providerDisplay}
+                                        </span>
+                                        <span className="text-muted-foreground font-mono text-xs">/</span>
+                                        <code className="font-mono text-xs font-semibold text-route truncate">
+                                          {modelIdText}
+                                        </code>
+                                        {isFirst && (
+                                          <Badge variant="route" className="font-mono text-[10px]">
+                                            PRIMARY
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <div className="mt-0.5 font-mono text-[11px] text-muted-foreground tabular-nums">
+                                        Priority #{cand.priority} · Weight {cand.weight || 100}
+                                      </div>
+                                    </div>
                                   </div>
 
-                                  {/* Provider & Model Info */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-semibold text-xs text-foreground">
-                                        {provider ? provider.display_name : 'Provider'}
-                                      </span>
-                                      <span className="text-muted-foreground text-xs">/</span>
-                                      <span className="font-mono text-xs text-primary font-bold truncate">
-                                        {model ? model.model_identifier : 'Model'}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono mt-0.5">
-                                      <span>Priority #{cand.priority}</span>
-                                      <span>•</span>
-                                      <span>Weight: {cand.weight || 1.0}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Priority Reordering Controls */}
-                                  <div className="flex items-center gap-1 shrink-0">
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Switch
+                                      checked={active}
+                                      disabled={updateCandidatesMutation.isPending}
+                                      onCheckedChange={() => handleToggleCandidateActive(idx)}
+                                      aria-label={`Toggle candidate ${modelIdText}`}
+                                    />
                                     <Button
                                       variant="ghost"
                                       size="icon"
                                       disabled={isFirst || updateCandidatesMutation.isPending}
                                       onClick={() => handleMoveCandidate(idx, -1)}
-                                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                      title="Increase Priority (Move Up)"
+                                      aria-label={`Move ${modelIdText} higher in priority`}
                                     >
-                                      <ArrowUp className="h-3 w-3" />
+                                      <ArrowUp className="h-3.5 w-3.5" />
                                     </Button>
                                     <Button
                                       variant="ghost"
                                       size="icon"
                                       disabled={isLast || updateCandidatesMutation.isPending}
                                       onClick={() => handleMoveCandidate(idx, 1)}
-                                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                      title="Decrease Priority (Move Down)"
+                                      aria-label={`Move ${modelIdText} lower in priority`}
                                     >
-                                      <ArrowDown className="h-3 w-3" />
+                                      <ArrowDown className="h-3.5 w-3.5" />
                                     </Button>
                                     <Button
                                       variant="ghost"
                                       size="icon"
                                       disabled={updateCandidatesMutation.isPending}
                                       onClick={() => handleRemoveCandidate(cand.id)}
-                                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                      title="Remove from Alias"
+                                      className="hover:text-status-err"
+                                      aria-label={`Remove ${modelIdText} from chain`}
                                     >
-                                      <Trash2 className="h-3 w-3" />
+                                      <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
                                   </div>
                                 </div>
 
                                 {!isLast && (
-                                  <div className="flex justify-center py-0.5 text-muted-foreground/60">
-                                    <ArrowDown className="h-4 w-4" />
+                                  <div className="flex items-center gap-2 pl-6 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                    <div className="h-3 w-px bg-border" />
+                                    <span>ON FAILOVER &rarr;</span>
                                   </div>
                                 )}
                               </React.Fragment>
@@ -540,53 +640,88 @@ export function Routing() {
                           })}
                         </div>
                       )}
-                    </CardContent>
-                  </Card>
-                ) : null}
+                    </div>
+                  </section>
+                )}
               </div>
             </div>
           )}
         </TabsContent>
 
-        {/* TAB 2: ROUTING PROFILES */}
-        <TabsContent value="profiles" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {profiles.map((profile) => (
-              <Card key={profile.id} className="transition-shadow hover:shadow-sm">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-semibold">{profile.name}</CardTitle>
-                    {profile.is_default && (
-                      <Badge variant="success" className="text-[10px]">
-                        DEFAULT
-                      </Badge>
-                    )}
+        {/* TAB 2: PROFILES */}
+        <TabsContent value="profiles">
+          {isProfilesLoading ? (
+            <Skeleton className="h-44 w-full" />
+          ) : profiles.length === 0 ? (
+            <EmptyState
+              icon={Sliders}
+              title="No routing profiles defined"
+              description="Profiles encapsulate reusable failover attempt ceilings, strategy modes, and cooldown policies."
+              actionLabel="Create Routing Profile"
+              onAction={() => { resetProfileForm(); setIsAddProfileOpen(true); }}
+            />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {profiles.map((profile) => (
+                <section key={profile.id} className="rounded border border-border bg-card p-4 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-start justify-between gap-2 pb-3 border-b border-border">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-sm text-foreground truncate">{profile.name}</h3>
+                          {profile.is_default && <StatusBadge status="active" labelOverride="DEFAULT" />}
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                          {profile.description || 'Reusable failover policy profile'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEditProfile(profile)}
+                          aria-label={`Edit profile ${profile.name}`}
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeletingProfile(profile)}
+                          className="hover:text-status-err"
+                          aria-label={`Delete profile ${profile.name}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <dl className="mt-3 space-y-2 text-xs font-mono tabular-nums">
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground font-sans">Strategy</dt>
+                        <dd className="font-semibold uppercase text-foreground">{profile.strategy}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground font-sans">Max Attempts</dt>
+                        <dd className="text-foreground">{profile.max_attempts}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground font-sans">Retry After Cooldown</dt>
+                        <dd className={profile.retry_after_cooldown ? 'text-status-ok' : 'text-muted-foreground'}>
+                          {profile.retry_after_cooldown ? 'Enabled' : 'Disabled'}
+                        </dd>
+                      </div>
+                    </dl>
                   </div>
-                  <CardDescription className="text-xs">
-                    {profile.description || 'Configured routing profile'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1 border-b">
-                    <span className="text-muted-foreground">Strategy:</span>
-                    <span className="font-mono font-semibold text-foreground uppercase">
-                      {profile.strategy}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b">
-                    <span className="text-muted-foreground">Max Attempts:</span>
-                    <span className="font-mono text-foreground">{profile.max_attempts}</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-muted-foreground">Timeout Budget:</span>
-                    <span className="font-mono text-foreground">
-                      {profile.request_timeout_seconds}s
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* TAB 3: FALLBACK & RECOVERY */}
+        <TabsContent value="recovery">
+          <FallbackRecoveryPanel providers={providers} />
         </TabsContent>
       </Tabs>
 
@@ -598,42 +733,45 @@ export function Routing() {
           setEditingAlias(null);
           resetAliasForm();
         }}
-        title={editingAlias ? 'Edit Model Alias' : 'Create Model Alias'}
-        description="Model aliases expose unified endpoint names (e.g. 'fast', 'smart') to clients."
+        title={editingAlias ? `Edit Alias: ${editingAlias.alias_name}` : 'Create Model Alias'}
+        description="Expose a stable model alias (e.g. fast, smart, coding) mapped to prioritized upstream candidates."
       >
-        <form onSubmit={handleSaveAlias} className="space-y-4 mt-2">
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Alias Name <span className="text-destructive">*</span>
+        <form onSubmit={handleSaveAlias} className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="alias-name" className="text-xs font-medium text-foreground block">
+              Alias Identifier <span className="text-status-err">*</span>
             </label>
             <Input
-              placeholder="e.g. fast, smart, coding, cheap"
+              id="alias-name"
+              placeholder="fast, smart, coding, cheap"
               value={formAliasName}
               onChange={(e) => setFormAliasName(e.target.value)}
               required
             />
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
+          <div className="space-y-1.5">
+            <label htmlFor="alias-desc" className="text-xs font-medium text-foreground block">
               Description (Optional)
             </label>
             <Input
-              placeholder="e.g. Fast response tier with multi-provider fallbacks"
+              id="alias-desc"
+              placeholder="Low-latency tier across Groq and Gemini Flash"
               value={formAliasDesc}
               onChange={(e) => setFormAliasDesc(e.target.value)}
             />
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
+          <div className="space-y-1.5">
+            <label htmlFor="alias-prof" className="text-xs font-medium text-foreground block">
               Routing Profile
             </label>
             <Select
+              id="alias-prof"
               value={formAliasProfileId}
               onChange={(e) => setFormAliasProfileId(e.target.value)}
             >
-              <option value="">Default Profile</option>
+              <option value="">System Default</option>
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({p.strategy})
@@ -643,27 +781,30 @@ export function Routing() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1">
+            <div className="space-y-1.5">
+              <label htmlFor="alias-attempts" className="text-xs font-medium text-foreground block">
                 Max Attempts
               </label>
               <Input
+                id="alias-attempts"
                 type="number"
-                min="1"
-                max="10"
+                min={1}
+                max={10}
                 value={formAliasMaxAttempts}
                 onChange={(e) => setFormAliasMaxAttempts(e.target.value)}
                 required
               />
             </div>
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1">
-                Timeout (seconds)
+            <div className="space-y-1.5">
+              <label htmlFor="alias-timeout" className="text-xs font-medium text-foreground block">
+                Timeout (sec)
               </label>
               <Input
+                id="alias-timeout"
                 type="number"
                 step="0.5"
-                min="1"
+                min={1}
+                max={300}
                 value={formAliasTimeout}
                 onChange={(e) => setFormAliasTimeout(e.target.value)}
                 required
@@ -671,17 +812,17 @@ export function Routing() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="flex items-center justify-between rounded border border-border p-3">
             <div>
               <span className="text-xs font-medium">Alias Enabled</span>
               <p className="text-[11px] text-muted-foreground">
-                When enabled, clients can request this alias via /v1/chat/completions.
+                Clients can address this alias through /v1/chat/completions.
               </p>
             </div>
             <Switch checked={formAliasEnabled} onCheckedChange={setFormAliasEnabled} />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t">
+          <div className="flex justify-end gap-2 pt-3 border-t border-border">
             <Button
               type="button"
               variant="outline"
@@ -703,15 +844,16 @@ export function Routing() {
       <Dialog
         open={isAddCandidateOpen}
         onClose={() => setIsAddCandidateOpen(false)}
-        title="Add Candidate to Alias"
-        description={`Add a provider and model candidate to '${currentAlias?.alias_name}'.`}
+        title={`Add Track to '${currentAlias?.alias_name}'`}
+        description="Append a provider/model candidate at the next sequential failover priority."
       >
-        <form onSubmit={handleAddCandidateSubmit} className="space-y-4 mt-2">
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Provider <span className="text-destructive">*</span>
+        <form onSubmit={handleAddCandidateSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="cand-prov" className="text-xs font-medium text-foreground block">
+              Provider <span className="text-status-err">*</span>
             </label>
             <Select
+              id="cand-prov"
               value={candProviderId}
               onChange={(e) => {
                 setCandProviderId(e.target.value);
@@ -719,7 +861,7 @@ export function Routing() {
               }}
               required
             >
-              <option value="">Select a provider...</option>
+              <option value="">Select provider...</option>
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.display_name}
@@ -728,17 +870,18 @@ export function Routing() {
             </Select>
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Model <span className="text-destructive">*</span>
+          <div className="space-y-1.5">
+            <label htmlFor="cand-mod" className="text-xs font-medium text-foreground block">
+              Model <span className="text-status-err">*</span>
             </label>
             <Select
+              id="cand-mod"
               value={candModelId}
               onChange={(e) => setCandModelId(e.target.value)}
               disabled={!candProviderId}
               required
             >
-              <option value="">Select a model...</option>
+              <option value="">Select model...</option>
               {candidateProviderModels.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.display_name} ({m.model_identifier})
@@ -747,12 +890,26 @@ export function Routing() {
             </Select>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t">
+          <div className="space-y-1.5">
+            <label htmlFor="cand-weight" className="text-xs font-medium text-foreground block">
+              Weight (1–100)
+            </label>
+            <Input
+              id="cand-weight"
+              type="number"
+              min={1}
+              max={100}
+              value={candWeight}
+              onChange={(e) => setCandWeight(e.target.value)}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-border">
             <Button type="button" variant="outline" onClick={() => setIsAddCandidateOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={!candModelId || updateCandidatesMutation.isPending}>
-              Add to Chain
+              Append to Chain
             </Button>
           </div>
         </form>
@@ -763,9 +920,9 @@ export function Routing() {
         open={!!deletingAlias}
         onClose={() => setDeletingAlias(null)}
         title="Delete Model Alias?"
-        description={`Are you sure you want to delete alias '${deletingAlias?.alias_name}'? Client requests addressing this alias will return a 404 error.`}
+        description={`Delete '${deletingAlias?.alias_name}'? Client requests referencing this alias will return 404 Not Found.`}
       >
-        <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
+        <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={() => setDeletingAlias(null)}>
             Cancel
           </Button>
@@ -779,100 +936,133 @@ export function Routing() {
         </div>
       </Dialog>
 
-      {/* Add Profile Dialog */}
+      {/* Add / Edit Profile Dialog */}
       <Dialog
-        open={isAddProfileOpen}
-        onClose={() => setIsAddProfileOpen(false)}
-        title="Create Routing Profile"
-        description="Routing profiles define reusable strategy and retry parameters."
+        open={isAddProfileOpen || !!editingProfile}
+        onClose={() => {
+          setIsAddProfileOpen(false);
+          setEditingProfile(null);
+        }}
+        title={editingProfile ? `Edit Profile: ${editingProfile.name}` : 'Create Routing Profile'}
+        description="Define reusable retry attempts and cooldown recovery strategies."
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createProfileMutation.mutate({
-              name: formProfileName.trim(),
-              description: formProfileDesc || null,
-              strategy: formProfileStrategy,
-              max_attempts: parseInt(formProfileMaxAttempts, 10),
-              request_timeout_seconds: parseFloat(formProfileTimeout),
-              is_default: formProfileIsDefault,
-            });
-          }}
-          className="space-y-4 mt-2"
-        >
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Profile Name <span className="text-destructive">*</span>
+        <form onSubmit={handleSaveProfile} className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="prof-name" className="text-xs font-medium text-foreground block">
+              Profile Name <span className="text-status-err">*</span>
             </label>
             <Input
-              placeholder="e.g. high-reliability-tier"
+              id="prof-name"
+              placeholder="e.g. high-resilience"
               value={formProfileName}
               onChange={(e) => setFormProfileName(e.target.value)}
               required
             />
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-foreground block mb-1">
-              Strategy
+          <div className="space-y-1.5">
+            <label htmlFor="prof-desc" className="text-xs font-medium text-foreground block">
+              Description (Optional)
             </label>
-            <Select
-              value={formProfileStrategy}
-              onChange={(e) => setFormProfileStrategy(e.target.value)}
-            >
-              <option value="priority">Priority-based (Sequential Fallback)</option>
-            </Select>
+            <Input
+              id="prof-desc"
+              placeholder="Mission-critical sequential fallback"
+              value={formProfileDesc}
+              onChange={(e) => setFormProfileDesc(e.target.value)}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1">
+            <div className="space-y-1.5">
+              <label htmlFor="prof-strategy" className="text-xs font-medium text-foreground block">
+                Strategy
+              </label>
+              <Select
+                id="prof-strategy"
+                value={formProfileStrategy}
+                onChange={(e) => setFormProfileStrategy(e.target.value)}
+              >
+                <option value="priority">priority (Sequential Fallback)</option>
+                <option value="fallback">fallback</option>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="prof-attempts" className="text-xs font-medium text-foreground block">
                 Max Attempts
               </label>
               <Input
+                id="prof-attempts"
                 type="number"
-                min="1"
-                max="10"
+                min={1}
+                max={10}
                 value={formProfileMaxAttempts}
                 onChange={(e) => setFormProfileMaxAttempts(e.target.value)}
               />
             </div>
-            <div>
-              <label className="text-xs font-medium text-foreground block mb-1">
-                Timeout (seconds)
-              </label>
-              <Input
-                type="number"
-                min="1"
-                value={formProfileTimeout}
-                onChange={(e) => setFormProfileTimeout(e.target.value)}
-              />
-            </div>
           </div>
 
-          <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="flex items-center justify-between rounded border border-border p-3">
             <div>
-              <span className="text-xs font-medium">Default Profile</span>
+              <span className="text-xs font-medium">Retry After Cooldown</span>
               <p className="text-[11px] text-muted-foreground">
-                Set as default profile for newly registered aliases.
+                Automatically restore candidates once cooldown expires.
               </p>
             </div>
             <Switch
-              checked={formProfileIsDefault}
-              onCheckedChange={setFormProfileIsDefault}
+              checked={formProfileRetryAfterCooldown}
+              onCheckedChange={setFormProfileRetryAfterCooldown}
             />
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t">
-            <Button type="button" variant="outline" onClick={() => setIsAddProfileOpen(false)}>
+          <div className="flex items-center justify-between rounded border border-border p-3">
+            <div>
+              <span className="text-xs font-medium">Default Profile</span>
+              <p className="text-[11px] text-muted-foreground">
+                Apply to requests without an explicit profile override.
+              </p>
+            </div>
+            <Switch checked={formProfileIsDefault} onCheckedChange={setFormProfileIsDefault} />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-border">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setIsAddProfileOpen(false);
+                setEditingProfile(null);
+              }}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={createProfileMutation.isPending}>
-              Create Profile
+            <Button type="submit" disabled={createProfileMutation.isPending || updateProfileMutation.isPending}>
+              {editingProfile ? 'Save Changes' : 'Create Profile'}
             </Button>
           </div>
         </form>
       </Dialog>
+
+      {/* Delete Profile Dialog */}
+      <Dialog
+        open={!!deletingProfile}
+        onClose={() => setDeletingProfile(null)}
+        title="Delete Routing Profile?"
+        description={`Delete profile '${deletingProfile?.name}'? Linked aliases will revert to default behavior.`}
+      >
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={() => setDeletingProfile(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={deleteProfileMutation.isPending}
+            onClick={() => deletingProfile && deleteProfileMutation.mutate(deletingProfile.id)}
+          >
+            {deleteProfileMutation.isPending ? 'Deleting...' : 'Delete Profile'}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }
+export default Routing;

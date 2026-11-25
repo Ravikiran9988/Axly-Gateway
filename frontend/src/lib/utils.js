@@ -19,3 +19,17 @@ export function formatDate(dateString) {
     return dateString;
   }
 }
+
+export function formatLatency(ms) {
+  if (ms === null || ms === undefined || Number.isNaN(Number(ms))) return '—';
+  const num = Math.round(Number(ms));
+  if (num >= 1000) {
+    return `${(num / 1000).toFixed(2)} s`;
+  }
+  return `${num} ms`;
+}
+
+export function formatCurrency(amount) {
+  if (amount === null || amount === undefined || Number.isNaN(Number(amount))) return '$0.0000';
+  return `$${Number(amount).toFixed(4)}`;
+}

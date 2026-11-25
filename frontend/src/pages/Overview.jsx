@@ -118,6 +118,10 @@ export function Overview() {
   const okReq = overview?.successful_requests || 0;
   const errReq = overview?.failed_requests || 0;
   const successRate = overview?.success_rate ?? 100;
+  const poolHealthyKeys = providerSummaries.reduce((acc, p) => acc + (p.healthy_credentials || 0), 0);
+  const poolCooldownKeys = providerSummaries.reduce((acc, p) => acc + (p.cooldown_credentials || 0), 0);
+  const displayHealthyKeys = Math.max(overview?.healthy_credentials || 0, poolHealthyKeys);
+  const displayCooldownKeys = Math.max(overview?.cooldown_credentials || 0, poolCooldownKeys);
 
   return (
     <div className="space-y-5">
@@ -220,9 +224,9 @@ export function Overview() {
           subtext={
             <span>
               {overview?.active_providers || 0} prov ·{' '}
-              <span className="text-status-ok">{overview?.healthy_credentials || 0} keys ok</span>
-              {overview?.cooldown_credentials > 0 && (
-                <span className="text-status-warn"> · {overview.cooldown_credentials} cooldown</span>
+              <span className="text-status-ok">{displayHealthyKeys} keys ok</span>
+              {displayCooldownKeys > 0 && (
+                <span className="text-status-warn"> · {displayCooldownKeys} cooldown</span>
               )}
             </span>
           }

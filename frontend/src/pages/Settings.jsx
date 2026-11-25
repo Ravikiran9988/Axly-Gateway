@@ -1,439 +1,585 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Settings as SettingsIcon,
-  Shield,
-  KeyRound,
-  Save,
-  Lock,
-  Globe,
-  GitBranch,
-  Sliders,
-  CheckCircle2,
-  AlertCircle,
-} from 'lucide-react';
-import { PageHeader } from '../components/layout/PageHeader';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
-import { Badge } from '../components/ui/Badge';
-import { Switch } from '../components/ui/Switch';
-import { Select } from '../components/ui/Select';
-import { Skeleton } from '../components/ui/Skeleton';
-import { useToast } from '../components/ui/Toast';
+import { useSearchParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Save, Sun, Moon, Shield, Sliders, Activity } from 'lucide-react';
 import { settingsApi } from '../api/settings';
 import { authApi } from '../api/auth';
-import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
+import { PageHeader } from '../components/layout/PageHeader';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Switch } from '../components/ui/Switch';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs';
+import { Skeleton } from '../components/ui/Skeleton';
+import { HealthMonitorPanel } from '../components/system/HealthMonitorPanel';
+import { useToast } from '../components/ui/Toast';
+import { cn } from '../lib/utils';
 
-export function Settings() {
-  const { admin } = useAuth();
-  const toast = useToast();
+export function Settings({ initialTab = 'general' }) {
+  const { theme, setTheme } = useTheme();
+  const { addToast } = useToast();
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [loading, setLoading] = useState(true);
-  const [savingGeneral, setSavingGeneral] = useState(false);
-  const [savingRouting, setSavingRouting] = useState(false);
-  const [savingSecurity, setSavingSecurity] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabParam || initialTab);
 
-  // General Settings
-  const [appName, setAppName] = useState('AXLY Gateway');
-  const [timezone, setTimezone] = useState('UTC');
-  const [environment, setEnvironment] = useState('development');
+  useEffect(() => {
+    if (tabParam && ['general', 'security', 'health'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    } else {
+      setActiveTab(initialTab);
+    }
+  }, [tabParam, initialTab]);
 
-  // Routing Defaults
-  const [defaultProfile, setDefaultProfile] = useState('default');
-  const [maxAttempts, setMaxAttempts] = useState(3);
-  const [requestTimeout, setRequestTimeout] = useState(30);
-  const [streamingTimeout, setStreamingTimeout] = useState(60);
+  const handleTabChange = (nextTab) => {
+    setActiveTab(nextTab);
+    if (tabParam) {
+      setSearchParams(nextTab === 'general' ? {} : { tab: nextTab }, { replace: true });
+    }
+  };
 
-  // Security & Logging
-  const [logPayloads, setLogPayloads] = useState(false);
-  const [logResponses, setLogResponses] = useState(false);
+  const { data: settingsList = [], isLoading: isSettingsLoading } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: settingsApi.listSettings,
+  });
 
-  // Change Password Form
+  const [generalForm, setGeneralForm] = useState({
+    app_name: 'AXLY Gateway',
+    environment: 'production',
+    timezone: 'UTC',
+  });
+  const [routingForm, setRoutingForm] = useState({
+    default_profile: 'default',
+    max_attempts: 3,
+    request_timeout: 30,
+    streaming_timeout: 60,
+  });
+  const [securityForm, setSecurityForm] = useState({
+    log_payloads: false,
+    log_responses: false,
+    log_retention_days: 30,
+  });
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // Load existing settings
   useEffect(() => {
-    const loadSettings = async () => {
-      setLoading(true);
-      try {
-        const settingsList = await settingsApi.listSettings();
-        if (Array.isArray(settingsList)) {
-          settingsList.forEach((s) => {
-            if (s.key === 'general' && s.value) {
-              if (s.value.app_name) setAppName(s.value.app_name);
-              if (s.value.timezone) setTimezone(s.value.timezone);
-              if (s.value.environment) setEnvironment(s.value.environment);
-            } else if (s.key === 'routing_defaults' && s.value) {
-              if (s.value.default_profile) setDefaultProfile(s.value.default_profile);
-              if (s.value.max_attempts !== undefined) setMaxAttempts(s.value.max_attempts);
-              if (s.value.request_timeout !== undefined) setRequestTimeout(s.value.request_timeout);
-              if (s.value.streaming_timeout !== undefined) setStreamingTimeout(s.value.streaming_timeout);
-            } else if (s.key === 'security_logging' && s.value) {
-              if (s.value.log_payloads !== undefined) setLogPayloads(Boolean(s.value.log_payloads));
-              if (s.value.log_responses !== undefined) setLogResponses(Boolean(s.value.log_responses));
-            }
-          });
-        }
-      } catch (err) {
-        toast.error('Failed to load system settings');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadSettings();
-  }, [toast]);
+    if (!Array.isArray(settingsList) || settingsList.length === 0) return;
 
-  // Save General
-  const handleSaveGeneral = async (e) => {
-    e.preventDefault();
-    setSavingGeneral(true);
-    try {
-      await settingsApi.updateSetting('general', {
-        value: { app_name: appName, timezone, environment },
-        description: 'General system configuration',
-      });
-      toast.success('General settings saved');
-    } catch (err) {
-      toast.error(err.message || 'Failed to save general settings');
-    } finally {
-      setSavingGeneral(false);
-    }
-  };
+    const findSetting = (k) => settingsList.find((item) => item.key === k)?.value || {};
+    const gen = findSetting('general');
+    const rt = findSetting('routing_defaults');
+    const sec = findSetting('security_logging');
 
-  // Save Routing
-  const handleSaveRouting = async (e) => {
-    e.preventDefault();
-    setSavingRouting(true);
-    try {
-      await settingsApi.updateSetting('routing_defaults', {
-        value: {
-          default_profile: defaultProfile,
-          max_attempts: Number(maxAttempts) || 3,
-          request_timeout: Number(requestTimeout) || 30,
-          streaming_timeout: Number(streamingTimeout) || 60,
-        },
-        description: 'Routing engine timeouts and failover limits',
-      });
-      toast.success('Routing defaults saved');
-    } catch (err) {
-      toast.error(err.message || 'Failed to save routing defaults');
-    } finally {
-      setSavingRouting(false);
+    if (Object.keys(gen).length > 0) {
+      setGeneralForm((prev) => ({
+        ...prev,
+        ...gen,
+        app_name: gen.app_name ?? gen.gateway_name ?? prev.app_name,
+        timezone: gen.timezone ?? gen.default_timezone ?? prev.timezone,
+      }));
     }
-  };
+    if (Object.keys(rt).length > 0) {
+      setRoutingForm((prev) => ({ ...prev, ...rt }));
+    }
+    if (Object.keys(sec).length > 0) {
+      setSecurityForm((prev) => ({ ...prev, ...sec }));
+    }
+  }, [settingsList]);
 
-  // Save Security Logging
-  const handleSaveSecurity = async () => {
-    setSavingSecurity(true);
-    try {
-      await settingsApi.updateSetting('security_logging', {
-        value: {
-          log_payloads: logPayloads,
-          log_responses: logResponses,
-          redact_secrets: true,
-        },
-        description: 'Privacy and prompt payload logging preferences',
-      });
-      toast.success('Security & logging settings updated');
-    } catch (err) {
-      toast.error(err.message || 'Failed to update security settings');
-    } finally {
-      setSavingSecurity(false);
-    }
-  };
+  const saveSettingMutation = useMutation({
+    mutationFn: ({ key, value, description }) =>
+      settingsApi.updateSetting(key, { value, description }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      addToast(`Saved "${variables.key}" configuration`, 'success');
+    },
+    onError: (err) => addToast(err.message || 'Failed to save configuration', 'error'),
+  });
 
-  // Change Password
-  const handleChangePassword = async (e) => {
-    e.preventDefault();
-    if (newPassword.length < 8) {
-      toast.error('New password must be at least 8 characters');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error('New passwords do not match');
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      await authApi.changePassword(currentPassword, newPassword);
-      toast.success('Administrator password updated successfully');
+  const passwordMutation = useMutation({
+    mutationFn: () => authApi.changePassword(currentPassword, newPassword),
+    onSuccess: () => {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch (err) {
-      toast.error(err.message || 'Failed to change password. Verify current password.');
-    } finally {
-      setChangingPassword(false);
+      addToast('Administrator password updated', 'success');
+    },
+    onError: (err) => addToast(err.message || 'Password update failed', 'error'),
+  });
+
+  const handlePasswordSubmit = (e) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword) {
+      addToast('Enter both current and new passwords.', 'error');
+      return;
     }
+    if (newPassword !== confirmPassword) {
+      addToast('New passwords do not match.', 'error');
+      return;
+    }
+    if (newPassword.length < 8) {
+      addToast('New password must be at least 8 characters.', 'error');
+      return;
+    }
+    passwordMutation.mutate();
   };
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Configure gateway behavior, routing defaults, logging policies, and administrator credentials."
+        description="Gateway defaults, theme selection, administrator security controls, and real-time runtime health diagnostics."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* General Settings */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Globe className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">General Settings</CardTitle>
-            </div>
-            <CardDescription>
-              Platform identification and environment timezone properties.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-40 w-full" />
-            ) : (
-              <form onSubmit={handleSaveGeneral} className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-foreground">Application Name</label>
-                  <Input
-                    value={appName}
-                    onChange={(e) => setAppName(e.target.value)}
-                    required
-                    placeholder="AXLY Gateway"
-                  />
-                </div>
+      <Tabs value={activeTab} onValueChange={handleTabChange} variant="line">
+        <TabsList>
+          <TabsTrigger value="general">
+            <Sliders className="h-3.5 w-3.5 mr-1.5" />
+            General &amp; Routing
+          </TabsTrigger>
+          <TabsTrigger value="security">
+            <Shield className="h-3.5 w-3.5 mr-1.5" />
+            Security &amp; Access
+          </TabsTrigger>
+          <TabsTrigger value="health">
+            <Activity className="h-3.5 w-3.5 mr-1.5" />
+            Health Monitor
+          </TabsTrigger>
+        </TabsList>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Timezone</label>
-                    <Select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                      <option value="UTC">UTC (Universal)</option>
-                      <option value="America/New_York">America/New_York (EST/EDT)</option>
-                      <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
-                      <option value="Europe/London">Europe/London (GMT/BST)</option>
-                      <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
-                      <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Environment</label>
-                    <Input value={environment} disabled className="bg-muted uppercase font-mono text-xs" />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button type="submit" size="sm" disabled={savingGeneral} className="gap-2">
-                    <Save className="h-3.5 w-3.5" />
-                    {savingGeneral ? 'Saving...' : 'Save General Settings'}
-                  </Button>
-                </div>
-              </form>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Routing Engine Defaults */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <GitBranch className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Routing Defaults</CardTitle>
-            </div>
-            <CardDescription>
-              Execution limits and timeouts applied across client completions.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-40 w-full" />
-            ) : (
-              <form onSubmit={handleSaveRouting} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Default Profile</label>
-                    <Input
-                      value={defaultProfile}
-                      onChange={(e) => setDefaultProfile(e.target.value)}
-                      placeholder="default"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Max Routing Attempts</label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={maxAttempts}
-                      onChange={(e) => setMaxAttempts(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Request Timeout (sec)</label>
-                    <Input
-                      type="number"
-                      min={5}
-                      max={300}
-                      value={requestTimeout}
-                      onChange={(e) => setRequestTimeout(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">Streaming Timeout (sec)</label>
-                    <Input
-                      type="number"
-                      min={10}
-                      max={600}
-                      value={streamingTimeout}
-                      onChange={(e) => setStreamingTimeout(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button type="submit" size="sm" disabled={savingRouting} className="gap-2">
-                    <Save className="h-3.5 w-3.5" />
-                    {savingRouting ? 'Saving...' : 'Save Routing Defaults'}
-                  </Button>
-                </div>
-              </form>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Security & Logging Policy */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Shield className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Security & Logging Policy</CardTitle>
-            </div>
-            <CardDescription>
-              Data privacy controls and encryption standards for inference requests.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-foreground">Log Request Messages</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Record full user prompt payloads in request logs for observability.
-                  </p>
-                </div>
-                <Switch checked={logPayloads} onCheckedChange={setLogPayloads} />
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-foreground">Log Response Messages</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Record LLM output completions in request logs.
-                  </p>
-                </div>
-                <Switch checked={logResponses} onCheckedChange={setLogResponses} />
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/20">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-medium text-foreground">Secret Redaction</p>
-                    <Badge variant="success" className="text-[10px] py-0">Enforced</Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Provider API keys and client secrets are stripped from all logs and telemetry.
-                  </p>
-                </div>
-                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+        <TabsContent value="general" className="pt-5 space-y-6">
+          {/* Theme Surface Selector */}
+          <section className="rounded border border-border bg-card p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Appearance</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Dark mode is the operational default. Switch anytime or press{' '}
+                  <kbd className="rounded border border-border bg-surface-subtle px-1.5 py-0.5 font-mono text-[10px]">
+                    Ctrl+T
+                  </kbd>
+                  .
+                </p>
               </div>
             </div>
 
-            <div className="flex justify-end">
-              <Button
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
+              <button
                 type="button"
-                size="sm"
-                onClick={handleSaveSecurity}
-                disabled={savingSecurity}
-                className="gap-2"
+                onClick={() => setTheme('dark')}
+                className={cn(
+                  'flex items-center gap-3 rounded border p-3.5 text-left transition-colors',
+                  theme === 'dark'
+                    ? 'border-primary bg-primary/10 text-foreground'
+                    : 'border-border bg-surface-subtle text-muted-foreground hover:text-foreground'
+                )}
               >
-                <Save className="h-3.5 w-3.5" />
-                {savingSecurity ? 'Saving...' : 'Update Policy'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                <div className="flex h-8 w-8 items-center justify-center rounded border border-border bg-[#0F1115] text-white shrink-0">
+                  <Moon className="h-4 w-4" />
+                </div>
+                <div>
+                  <span className="block text-xs font-semibold text-foreground">
+                    Swiss Charcoal Rail (Dark)
+                  </span>
+                  <span className="block font-mono text-[11px] text-muted-foreground">
+                    Default control room
+                  </span>
+                </div>
+              </button>
 
-        {/* Administrator Password */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Administrator Security</CardTitle>
+              <button
+                type="button"
+                onClick={() => setTheme('light')}
+                className={cn(
+                  'flex items-center gap-3 rounded border p-3.5 text-left transition-colors',
+                  theme === 'light'
+                    ? 'border-primary bg-primary/10 text-foreground'
+                    : 'border-border bg-surface-subtle text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <div className="flex h-8 w-8 items-center justify-center rounded border border-border bg-[#F8F8F6] text-[#111317] shrink-0">
+                  <Sun className="h-4 w-4" />
+                </div>
+                <div>
+                  <span className="block text-xs font-semibold text-foreground">
+                    Swiss Station Paper (Light)
+                  </span>
+                  <span className="block font-mono text-[11px] text-muted-foreground">
+                    Daylight high-contrast
+                  </span>
+                </div>
+              </button>
             </div>
-            <CardDescription>
-              Update your administrator login credentials ({admin?.email || 'admin'}).
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleChangePassword} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Current Password</label>
-                <Input
-                  type="password"
-                  required
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                />
-              </div>
+          </section>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-foreground">New Password</label>
-                  <Input
-                    type="password"
-                    required
-                    minLength={8}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Min 8 characters"
+          {isSettingsLoading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* General Gateway Identity */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveSettingMutation.mutate({
+                    key: 'general',
+                    value: generalForm,
+                    description: 'General gateway display identity and environment defaults',
+                  });
+                }}
+                className="rounded border border-border bg-card p-5 space-y-4 flex flex-col justify-between"
+              >
+                <div className="space-y-4">
+                  <div className="border-b border-border pb-3">
+                    <h2 className="text-sm font-semibold text-foreground">Gateway Profile</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Control plane identification stored under the <code className="font-mono text-foreground">general</code> settings namespace.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="set-gw-name"
+                      className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                    >
+                      Gateway Instance Name
+                    </label>
+                    <Input
+                      id="set-gw-name"
+                      value={generalForm.app_name ?? ''}
+                      onChange={(e) =>
+                        setGeneralForm((prev) => ({ ...prev, app_name: e.target.value }))
+                      }
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="set-env"
+                        className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                      >
+                        Environment Label
+                      </label>
+                      <Input
+                        id="set-env"
+                        value={generalForm.environment ?? ''}
+                        onChange={(e) =>
+                          setGeneralForm((prev) => ({ ...prev, environment: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="set-tz"
+                        className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                      >
+                        Display Timezone
+                      </label>
+                      <Input
+                        id="set-tz"
+                        value={generalForm.timezone ?? ''}
+                        onChange={(e) =>
+                          setGeneralForm((prev) => ({ ...prev, timezone: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <Button type="submit" size="sm" disabled={saveSettingMutation.isPending}>
+                    <Save className="h-3.5 w-3.5 mr-1.5" />
+                    Save Profile
+                  </Button>
+                </div>
+              </form>
+
+              {/* Routing Defaults */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveSettingMutation.mutate({
+                    key: 'routing_defaults',
+                    value: routingForm,
+                    description: 'Default routing, failover attempts, and timeout thresholds',
+                  });
+                }}
+                className="rounded border border-border bg-card p-5 space-y-4 flex flex-col justify-between"
+              >
+                <div className="space-y-4">
+                  <div className="border-b border-border pb-3">
+                    <h2 className="text-sm font-semibold text-foreground">Routing Defaults</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Fallback engine parameters applied when request profiles do not override values.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="set-profile"
+                        className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                      >
+                        Default Profile
+                      </label>
+                      <Input
+                        id="set-profile"
+                        value={routingForm.default_profile ?? 'default'}
+                        onChange={(e) =>
+                          setRoutingForm((prev) => ({ ...prev, default_profile: e.target.value }))
+                        }
+                        className="font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="set-attempts"
+                        className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                      >
+                        Max Attempts
+                      </label>
+                      <Input
+                        id="set-attempts"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={routingForm.max_attempts ?? 3}
+                        onChange={(e) =>
+                          setRoutingForm((prev) => ({
+                            ...prev,
+                            max_attempts: Number(e.target.value),
+                          }))
+                        }
+                        className="font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="set-timeout"
+                        className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                      >
+                        Request Timeout (s)
+                      </label>
+                      <Input
+                        id="set-timeout"
+                        type="number"
+                        min={5}
+                        max={300}
+                        value={routingForm.request_timeout ?? 30}
+                        onChange={(e) =>
+                          setRoutingForm((prev) => ({
+                            ...prev,
+                            request_timeout: Number(e.target.value),
+                          }))
+                        }
+                        className="font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="set-stream-timeout"
+                        className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                      >
+                        Streaming Timeout (s)
+                      </label>
+                      <Input
+                        id="set-stream-timeout"
+                        type="number"
+                        min={5}
+                        max={600}
+                        value={routingForm.streaming_timeout ?? 60}
+                        onChange={(e) =>
+                          setRoutingForm((prev) => ({
+                            ...prev,
+                            streaming_timeout: Number(e.target.value),
+                          }))
+                        }
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <Button type="submit" size="sm" disabled={saveSettingMutation.isPending}>
+                    <Save className="h-3.5 w-3.5 mr-1.5" />
+                    Save Routing Defaults
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="security" className="pt-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Security & Logging */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveSettingMutation.mutate({
+                  key: 'security_logging',
+                  value: securityForm,
+                  description: 'Audit log retention and payload diagnostics policy',
+                });
+              }}
+              className="rounded border border-border bg-card p-5 space-y-4 flex flex-col justify-between"
+            >
+              <div className="space-y-4">
+                <div className="border-b border-border pb-3">
+                  <h2 className="text-sm font-semibold text-foreground">Security &amp; Audit Logging</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Audit trace capture and payload logging controls for stored request telemetry.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between rounded border border-border bg-surface-subtle px-3.5 py-2.5">
+                  <div>
+                    <label htmlFor="set-log-payloads" className="text-xs font-semibold text-foreground block">
+                      Capture Prompt Payloads
+                    </label>
+                    <span className="text-[11px] text-muted-foreground">
+                      Retain prompt messages in request inspection metadata
+                    </span>
+                  </div>
+                  <Switch
+                    id="set-log-payloads"
+                    checked={Boolean(securityForm.log_payloads)}
+                    onCheckedChange={(checked) =>
+                      setSecurityForm((prev) => ({ ...prev, log_payloads: checked }))
+                    }
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-foreground">Confirm New Password</label>
+                <div className="flex items-center justify-between rounded border border-border bg-surface-subtle px-3.5 py-2.5">
+                  <div>
+                    <label htmlFor="set-log-responses" className="text-xs font-semibold text-foreground block">
+                      Capture Completion Payloads
+                    </label>
+                    <span className="text-[11px] text-muted-foreground">
+                      Retain completion body metadata alongside execution traces
+                    </span>
+                  </div>
+                  <Switch
+                    id="set-log-responses"
+                    checked={Boolean(securityForm.log_responses)}
+                    onCheckedChange={(checked) =>
+                      setSecurityForm((prev) => ({ ...prev, log_responses: checked }))
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="set-retention"
+                    className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                  >
+                    Log Retention Window (Days)
+                  </label>
                   <Input
-                    type="password"
-                    required
-                    minLength={8}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Re-enter password"
+                    id="set-retention"
+                    type="number"
+                    min={1}
+                    max={3650}
+                    value={securityForm.log_retention_days ?? 30}
+                    onChange={(e) =>
+                      setSecurityForm((prev) => ({
+                        ...prev,
+                        log_retention_days: Number(e.target.value),
+                      }))
+                    }
+                    className="font-mono"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
-                <Button type="submit" size="sm" disabled={changingPassword} className="gap-2">
-                  <KeyRound className="h-3.5 w-3.5" />
-                  {changingPassword ? 'Updating...' : 'Change Password'}
+              <div className="pt-2 flex justify-end">
+                <Button type="submit" size="sm" disabled={saveSettingMutation.isPending}>
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  Save Security Policy
                 </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
-      </div>
+
+            {/* Change Admin Password */}
+            <form
+              onSubmit={handlePasswordSubmit}
+              className="rounded border border-border bg-card p-5 space-y-4 flex flex-col justify-between"
+            >
+              <div className="space-y-4">
+                <div className="border-b border-border pb-3">
+                  <h2 className="text-sm font-semibold text-foreground">Administrator Credentials</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Rotate your control-plane administrator login password.
+                  </p>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="pwd-current"
+                    className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                  >
+                    Current Password
+                  </label>
+                  <Input
+                    id="pwd-current"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="pwd-new"
+                      className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                    >
+                      New Password
+                    </label>
+                    <Input
+                      id="pwd-new"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="pwd-confirm"
+                      className="block font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5"
+                    >
+                      Confirm Password
+                    </label>
+                    <Input
+                      id="pwd-confirm"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <Button type="submit" size="sm" disabled={passwordMutation.isPending}>
+                  Update Password
+                </Button>
+              </div>
+            </form>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="health" className="pt-5">
+          <HealthMonitorPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

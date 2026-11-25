@@ -16,22 +16,17 @@ describe('Navigation & Sidebar Component', () => {
     );
 
     const expectedLabels = [
-      'Overview',
-      'Providers',
-      'Credentials',
-      'Models',
+      'Dashboard',
       'Routing',
-      'Fallback & Recovery',
-      'Playground',
+      'Providers',
       'API Keys',
-      'API Documentation',
-      'Analytics',
+      'Playground',
       'Request Logs',
-      'Health Monitor',
+      'Analytics',
       'Settings',
     ];
 
-    expect(navigationItems).toHaveLength(13);
+    expect(navigationItems).toHaveLength(8);
 
     expectedLabels.forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument();
@@ -47,6 +42,6 @@ describe('Navigation & Sidebar Component', () => {
       </BrowserRouter>
     );
 
-    expect(screen.getByText(/One API. Intelligent Routing. Reliable Failover./i)).toBeInTheDocument();
+    expect(screen.getByText(/One API. Intelligent Routing. Zero-Downtime Failover./i)).toBeInTheDocument();
   });
 });

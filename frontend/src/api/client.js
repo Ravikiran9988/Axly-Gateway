@@ -42,11 +42,23 @@ class ApiClient {
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        const error = new Error(
+        let message =
           (data && data.error && data.error.message) ||
           (data && data.message) ||
-          `Request failed with status ${response.status}`
-        );
+          `Request failed with status ${response.status}`;
+        if (Array.isArray(data?.error?.details) && data.error.details.length > 0) {
+          const detailText = data.error.details
+            .map((d) => {
+              const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : '';
+              return field ? `${field}: ${d.msg}` : d.msg;
+            })
+            .filter(Boolean)
+            .join('; ');
+          if (detailText) {
+            message = `${message} (${detailText})`;
+          }
+        }
+        const error = new Error(message);
         error.status = response.status;
         error.code = data && data.error && data.error.code;
         error.details = data && data.error && data.error.details;

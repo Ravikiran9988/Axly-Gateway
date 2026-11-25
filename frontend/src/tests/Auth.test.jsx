@@ -5,17 +5,20 @@ import { describe, it, expect, vi } from 'vitest';
 import { Setup } from '../pages/Setup';
 import { Login } from '../pages/Login';
 import { ToastProvider } from '../components/ui/Toast';
+import { ThemeProvider } from '../context/ThemeContext';
 import { AuthProvider } from '../context/AuthContext';
 
 describe('Authentication UI States', () => {
   it('renders setup form with email, password, and confirm password fields', () => {
     render(
       <BrowserRouter>
-        <ToastProvider>
-          <AuthProvider>
-            <Setup />
-          </AuthProvider>
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <Setup />
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
       </BrowserRouter>
     );
 
@@ -27,11 +30,13 @@ describe('Authentication UI States', () => {
   it('renders administrator login form', () => {
     render(
       <BrowserRouter>
-        <ToastProvider>
-          <AuthProvider>
-            <Login />
-          </AuthProvider>
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <Login />
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
       </BrowserRouter>
     );
 

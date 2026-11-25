@@ -1,397 +1,319 @@
-import React, { useState } from 'react';
-import {
-  BookOpen,
-  Code,
-  Copy,
-  Check,
-  Zap,
-  Shield,
-  Layers,
-  Terminal,
-  Server,
-  ArrowRight,
-  ExternalLink,
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Copy, Check, Terminal, ArrowRight, KeyRound } from 'lucide-react';
+import { routingApi } from '../api/routing';
 import { PageHeader } from '../components/layout/PageHeader';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
-import { useToast } from '../components/ui/Toast';
+import { Badge } from '../components/ui/Badge';
+import { Switch } from '../components/ui/Switch';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/Tabs';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '../components/ui/Table';
 
 export function ApiDocs() {
-  const [activeTab, setActiveTab] = useState('curl');
-  const [copied, setCopied] = useState(false);
-  const toast = useToast();
+  const [selectedLang, setSelectedLang] = useState('curl');
+  const [streaming, setStreaming] = useState(true);
+  const [copiedId, setCopiedId] = useState(null);
 
-  const originUrl = window.location.origin;
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000';
+  const baseUrl = `${origin}/v1`;
 
-  const curlCode = `curl -X POST "${originUrl}/v1/chat/completions" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer axly-YOUR_GATEWAY_API_KEY" \\
-  -d '{
-    "model": "fast",
-    "messages": [
-      { "role": "system", "content": "You are a helpful AI assistant." },
-      { "role": "user", "content": "Explain circuit breakers in distributed systems." }
-    ],
-    "temperature": 0.7,
-    "max_tokens": 1024,
-    "stream": false
-  }'`;
-
-  const pythonCode = `import openai
-
-client = openai.OpenAI(
-    base_url="${originUrl}/v1",
-    api_key="axly-YOUR_GATEWAY_API_KEY",
-)
-
-# Use routing aliases: "fast", "smart", "coding", "cheap"
-# Or explicit model IDs: "groq/llama-3.3-70b-versatile", "gemini/gemini-2.5-flash"
-response = client.chat.completions.create(
-    model="fast",
-    messages=[
-        {"role": "system", "content": "You are a concise engineering lead."},
-        {"role": "user", "content": "What are the benefits of LLM gateway failover?"},
-    ],
-    temperature=0.7,
-)
-
-print(response.choices[0].message.content)`;
-
-  const streamingPythonCode = `import openai
-
-client = openai.OpenAI(
-    base_url="${originUrl}/v1",
-    api_key="axly-YOUR_GATEWAY_API_KEY",
-)
-
-stream = client.chat.completions.create(
-    model="smart",
-    messages=[{"role": "user", "content": "Write a Python retry decorator."}],
-    stream=True,
-)
-
-for chunk in stream:
-    content = chunk.choices[0].delta.content or ""
-    print(content, end="", flush=True)`;
-
-  const nodeCode = `import OpenAI from "openai";
-
-const openai = new OpenAI({
-  baseURL: "${originUrl}/v1",
-  apiKey: "axly-YOUR_GATEWAY_API_KEY",
-});
-
-async function main() {
-  const completion = await openai.chat.completions.create({
-    model: "coding",
-    messages: [
-      { role: "system", content: "You are an expert TypeScript architect." },
-      { role: "user", content: "Provide a generic rate limiter function." },
-    ],
+  const { data: aliases = [] } = useQuery({
+    queryKey: ['aliases'],
+    queryFn: routingApi.listAliases,
   });
 
-  console.log(completion.choices[0].message.content);
-}
+  const activeAliases = useMemo(() => aliases.filter((a) => a.is_enabled), [aliases]);
+  const sampleModel = activeAliases[0]?.alias_name || 'smart';
 
-main();`;
+  const snippets = useMemo(
+    () => ({
+      curl: `curl -X POST "${baseUrl}/chat/completions" \\
+  -H "Authorization: Bearer axly_your_gateway_key" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${sampleModel}",
+    "stream": ${streaming},
+    "messages": [
+      {"role": "system", "content": "Be concise and factual."},
+      {"role": "user", "content": "Summarize our gateway failover architecture."}
+    ]
+  }'`,
+      python: `from openai import OpenAI
 
-  const getActiveCode = () => {
-    switch (activeTab) {
-      case 'curl':
-        return curlCode;
-      case 'python':
-        return pythonCode;
-      case 'python_stream':
-        return streamingPythonCode;
-      case 'node':
-        return nodeCode;
-      default:
-        return curlCode;
-    }
-  };
+client = OpenAI(
+    base_url="${baseUrl}",
+    api_key="axly_your_gateway_key",
+)
 
-  const copyToClipboard = (text) => {
+response = client.chat.completions.create(
+    model="${sampleModel}",
+    stream=${streaming ? 'True' : 'False'},
+    messages=[
+        {"role": "system", "content": "Be concise and factual."},
+        {"role": "user", "content": "Summarize our gateway failover architecture."},
+    ],
+)
+${streaming ? 'for chunk in response:\n    print(chunk.choices[0].delta.content or "", end="")' : 'print(response.choices[0].message.content)'}`,
+      javascript: `const res = await fetch("${baseUrl}/chat/completions", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer axly_your_gateway_key",
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "${sampleModel}",
+    stream: ${streaming},
+    messages: [
+      { role: "user", content: "Summarize our gateway failover architecture." }
+    ],
+  }),
+});`,
+    }),
+    [baseUrl, sampleModel, streaming]
+  );
+
+  const handleCopy = (text, id) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    toast.info('Code snippet copied to clipboard');
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1800);
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-4xl">
       <PageHeader
-        title="API Documentation"
-        description="Complete reference for integrating client applications with the AXLY Gateway OpenAI-compatible endpoint."
+        title="API Reference"
+        description="OpenAI-compatible REST contract, alias targeting, response telemetry headers, and deterministic failover error codes."
+        actions={
+          <div className="flex items-center gap-2">
+            <Link to="/api-keys">
+              <Button variant="outline" size="sm">
+                <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+                Manage Keys
+              </Button>
+            </Link>
+            <Link to="/playground">
+              <Button size="sm">
+                <Terminal className="h-3.5 w-3.5 mr-1.5" />
+                Test in Playground
+              </Button>
+            </Link>
+          </div>
+        }
       />
 
-      {/* Overview Banner */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="p-5">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="border-primary text-primary font-mono text-[10px]">
-                  POST /v1/chat/completions
-                </Badge>
-                <Badge variant="success">OpenAI-Compatible</Badge>
-              </div>
-              <h3 className="text-base font-semibold text-foreground">
-                Drop-in Replacement for any OpenAI SDK or Client
-              </h3>
-              <p className="text-xs text-muted-foreground max-w-2xl">
-                Point your existing libraries to <code className="font-mono text-foreground font-semibold">{originUrl}/v1</code>.
-                AXLY Gateway handles dynamic model resolution, multi-key credential load balancing, quota cooldowns, and automatic failovers transparently.
-              </p>
-            </div>
+      {/* Endpoint & Auth Contract */}
+      <section className="rounded border border-border bg-card p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-mono text-xs">
+            <Badge variant="route" className="font-mono text-[10px]">
+              POST
+            </Badge>
+            <code className="font-semibold text-foreground">{baseUrl}/chat/completions</code>
           </div>
-        </CardContent>
-      </Card>
+          <button
+            type="button"
+            onClick={() => handleCopy(`${baseUrl}/chat/completions`, 'endpoint')}
+            className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            {copiedId === 'endpoint' ? <Check className="h-3.5 w-3.5 text-status-ok" /> : <Copy className="h-3.5 w-3.5" />}
+            Copy Endpoint
+          </button>
+        </div>
+        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-prose">
+          Drop-in replacement for OpenAI chat completions. Authenticate requests with a Gateway Client Key (<code className="font-mono text-xs text-foreground">Authorization: Bearer axly_...</code>) and target any configured routing alias or catalog model identifier in the <code className="font-mono text-xs text-foreground">model</code> field.
+        </p>
+      </section>
 
-      {/* Interactive Code Playground / Examples */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Interactive SDK Snippets */}
+      <section className="rounded border border-border bg-card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface-subtle px-4 py-2.5">
+          <Tabs value={selectedLang} onValueChange={setSelectedLang} variant="segmented">
+            <TabsList>
+              <TabsTrigger value="curl">cURL</TabsTrigger>
+              <TabsTrigger value="python">Python SDK</TabsTrigger>
+              <TabsTrigger value="javascript">JavaScript fetch</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="docs-stream"
+                checked={streaming}
+                onCheckedChange={setStreaming}
+                aria-label="Toggle streaming example"
+              />
+              <label htmlFor="docs-stream" className="font-mono text-[11px] text-muted-foreground">
+                stream: {String(streaming)}
+              </label>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleCopy(snippets[selectedLang], 'snippet')}
+            >
+              {copiedId === 'snippet' ? (
+                <>
+                  <Check className="h-3.5 w-3.5 mr-1.5 text-status-ok" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 mr-1.5" />
+                  Copy Code
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <pre className="p-4 sm:p-5 font-mono text-xs leading-relaxed text-foreground bg-rail overflow-x-auto">
+          {snippets[selectedLang]}
+        </pre>
+      </section>
+
+      {/* Active Routing Aliases Preview */}
+      {activeAliases.length > 0 && (
+        <section className="rounded border border-border bg-card overflow-hidden">
+          <div className="border-b border-border px-4 py-3 sm:px-5 flex items-center justify-between">
             <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Terminal className="h-4 w-4 text-primary" />
-                Integration Snippets
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Select your preferred language or client library.
-              </CardDescription>
+              <h2 className="text-sm font-semibold text-foreground">Configured Model Targets</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Active routing aliases available for immediate use in the <code className="font-mono text-foreground">model</code> parameter.
+              </p>
             </div>
-
-            <div className="flex items-center gap-1.5 bg-muted p-1 rounded-lg">
-              <button
-                onClick={() => setActiveTab('curl')}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                  activeTab === 'curl' ? 'bg-background font-semibold shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                cURL
-              </button>
-              <button
-                onClick={() => setActiveTab('python')}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                  activeTab === 'python' ? 'bg-background font-semibold shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Python SDK
-              </button>
-              <button
-                onClick={() => setActiveTab('python_stream')}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                  activeTab === 'python_stream' ? 'bg-background font-semibold shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Python Streaming
-              </button>
-              <button
-                onClick={() => setActiveTab('node')}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                  activeTab === 'node' ? 'bg-background font-semibold shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Node.js / TypeScript
-              </button>
-            </div>
+            <Link to="/routing" className="font-mono text-[11px] text-route hover:underline">
+              Edit aliases <ArrowRight className="inline h-3 w-3 ml-0.5" />
+            </Link>
           </div>
-        </CardHeader>
-
-        <CardContent>
-          <div className="relative rounded-lg border bg-muted/40 font-mono text-xs">
-            <div className="flex items-center justify-between border-b px-4 py-2 bg-muted/70">
-              <span className="text-[11px] text-muted-foreground">
-                {activeTab === 'curl' ? 'bash' : activeTab === 'node' ? 'typescript' : 'python'}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs gap-1.5"
-                onClick={() => copyToClipboard(getActiveCode())}
+          <div className="divide-y divide-border">
+            {activeAliases.map((alias) => (
+              <div
+                key={alias.id}
+                className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs"
               >
-                {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
-            </div>
-            <pre className="p-4 overflow-x-auto text-foreground leading-relaxed">
-              <code>{getActiveCode()}</code>
-            </pre>
+                <code className="font-mono font-semibold text-foreground">{alias.alias_name}</code>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {alias.candidates?.length || 0} fallback candidates configured
+                </span>
+              </div>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+        </section>
+      )}
 
-      {/* Model Aliases vs Explicit Models */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" />
-              <CardTitle className="text-sm font-semibold">Model Aliases</CardTitle>
-            </div>
-            <CardDescription className="text-xs">
-              Abstract high-level routing targets with automatic failover fallback chains.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-xs">
-            <div className="border rounded-md divide-y">
-              <div className="p-2.5 flex items-center justify-between">
-                <div>
-                  <code className="font-bold text-primary font-mono">fast</code>
-                  <p className="text-[11px] text-muted-foreground">Optimized for sub-second latency.</p>
-                </div>
-                <Badge variant="outline" className="font-mono text-[10px]">Groq &rarr; Gemini &rarr; OpenAI</Badge>
-              </div>
+      {/* Diagnostic Response Headers */}
+      <section className="rounded border border-border bg-card overflow-hidden">
+        <div className="border-b border-border px-4 py-3 sm:px-5">
+          <h2 className="text-sm font-semibold text-foreground">Gateway Diagnostic Headers</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Metadata headers returned alongside completions for tracing failover behavior.
+          </p>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Header</TableHead>
+              <TableHead>Example</TableHead>
+              <TableHead>Description</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell className="font-mono text-xs text-route">X-Axly-Request-Id</TableCell>
+              <TableCell className="font-mono text-[11px] text-muted-foreground">req_8c1f...</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Unique gateway trace ID queryable inside Request Logs.
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-mono text-xs text-route">X-Axly-Provider</TableCell>
+              <TableCell className="font-mono text-[11px] text-muted-foreground">groq</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Upstream provider adapter that fulfilled the final completion.
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-mono text-xs text-route">X-Axly-Model</TableCell>
+              <TableCell className="font-mono text-[11px] text-muted-foreground">llama-3.3-70b-versatile</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Resolved upstream catalog model identifier after alias expansion.
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-mono text-xs text-route">X-Axly-Attempt-Count</TableCell>
+              <TableCell className="font-mono text-[11px] text-muted-foreground">2</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Total execution attempts across credential rotation and failover hops.
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-mono text-xs text-route">X-Axly-Failover</TableCell>
+              <TableCell className="font-mono text-[11px] text-muted-foreground">true</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Indicates whether the gateway switched away from the first-priority target.
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </section>
 
-              <div className="p-2.5 flex items-center justify-between">
-                <div>
-                  <code className="font-bold text-primary font-mono">smart</code>
-                  <p className="text-[11px] text-muted-foreground">High reasoning and instruction following.</p>
-                </div>
-                <Badge variant="outline" className="font-mono text-[10px]">OpenAI &rarr; Gemini &rarr; Groq</Badge>
-              </div>
-
-              <div className="p-2.5 flex items-center justify-between">
-                <div>
-                  <code className="font-bold text-primary font-mono">coding</code>
-                  <p className="text-[11px] text-muted-foreground">Specialized code generation & refactoring.</p>
-                </div>
-                <Badge variant="outline" className="font-mono text-[10px]">GPT-4o &rarr; Gemini-2.5-Flash</Badge>
-              </div>
-
-              <div className="p-2.5 flex items-center justify-between">
-                <div>
-                  <code className="font-bold text-primary font-mono">cheap</code>
-                  <p className="text-[11px] text-muted-foreground">Lowest token cost per 1M tokens.</p>
-                </div>
-                <Badge variant="outline" className="font-mono text-[10px]">Gemini Flash &rarr; Groq Llama</Badge>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Candidate chains and priorities can be modified in real-time from the Routing configuration tab without restarting the service.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Custom Transparency Headers */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Server className="h-4 w-4 text-primary" />
-              <CardTitle className="text-sm font-semibold">Response Transparency Headers</CardTitle>
-            </div>
-            <CardDescription className="text-xs">
-              Every API response includes diagnostic execution headers explaining routing choices.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-xs">
-            <div className="border rounded-md divide-y font-mono text-[11px]">
-              <div className="p-2.5 flex justify-between">
-                <span className="font-semibold text-foreground">X-Axly-Request-Id</span>
-                <span className="text-muted-foreground">UUIDv4 tracking ID</span>
-              </div>
-              <div className="p-2.5 flex justify-between">
-                <span className="font-semibold text-foreground">X-Axly-Provider</span>
-                <span className="text-muted-foreground">Resolved upstream provider (e.g. groq)</span>
-              </div>
-              <div className="p-2.5 flex justify-between">
-                <span className="font-semibold text-foreground">X-Axly-Model</span>
-                <span className="text-muted-foreground">Actual upstream model queried</span>
-              </div>
-              <div className="p-2.5 flex justify-between">
-                <span className="font-semibold text-foreground">X-Axly-Attempts</span>
-                <span className="text-muted-foreground">Total failover attempts made</span>
-              </div>
-              <div className="p-2.5 flex justify-between">
-                <span className="font-semibold text-foreground">X-Axly-Latency-Ms</span>
-                <span className="text-muted-foreground">Total processing latency</span>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              If candidate 1 fails due to rate limits or timeouts, AXLY Gateway retries candidate 2 and logs the full attempt journey in Request Logs.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Error Handling & HTTP Status Codes */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-primary" />
-            <CardTitle className="text-sm font-semibold">HTTP Status Codes & Error Semantics</CardTitle>
-          </div>
-          <CardDescription className="text-xs">
-            Standard HTTP error responses conforming to OpenAI error specifications.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-            <div className="border rounded-md p-3">
-              <div className="flex items-center justify-between">
-                <code className="font-mono font-bold text-foreground">401 Unauthorized</code>
-                <Badge variant="destructive" className="text-[10px]">Auth</Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Missing or invalid Gateway API key. Check <code className="font-mono">Authorization: Bearer axly-...</code>
-              </p>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <div className="flex items-center justify-between">
-                <code className="font-mono font-bold text-foreground">400 Bad Request</code>
-                <Badge variant="secondary" className="text-[10px]">Client</Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Malformed JSON payload, empty messages list, or unsupported model parameter.
-              </p>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <div className="flex items-center justify-between">
-                <code className="font-mono font-bold text-foreground">404 Not Found</code>
-                <Badge variant="secondary" className="text-[10px]">Client</Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Requested model or alias is not configured or disabled in AXLY Gateway catalog.
-              </p>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <div className="flex items-center justify-between">
-                <code className="font-mono font-bold text-foreground">429 Rate Limit</code>
-                <Badge variant="warning" className="text-[10px]">Throttled</Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Client RPM exceeded or all eligible upstream providers are currently quota exhausted.
-              </p>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <div className="flex items-center justify-between">
-                <code className="font-mono font-bold text-foreground">502 Bad Gateway</code>
-                <Badge variant="destructive" className="text-[10px]">Upstream</Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                All candidates in failover chain were exhausted due to upstream provider network errors.
-              </p>
-            </div>
-
-            <div className="border rounded-md p-3">
-              <div className="flex items-center justify-between">
-                <code className="font-mono font-bold text-foreground">504 Gateway Timeout</code>
-                <Badge variant="destructive" className="text-[10px]">Timeout</Badge>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Upstream model failed to return a response before the configured timeout period.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* HTTP Status Codes */}
+      <section className="rounded border border-border bg-card overflow-hidden">
+        <div className="border-b border-border px-4 py-3 sm:px-5">
+          <h2 className="text-sm font-semibold text-foreground">HTTP Status &amp; Retry Semantics</h2>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Status</TableHead>
+              <TableHead>Meaning</TableHead>
+              <TableHead>Gateway Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell className="font-mono font-semibold text-status-ok">200 OK</TableCell>
+              <TableCell className="text-xs text-foreground">Completion succeeded</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Returns OpenAI payload or SSE stream and commits token ledger metrics.
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-mono font-semibold text-status-warn">401 Unauthorized</TableCell>
+              <TableCell className="text-xs text-foreground">Invalid, revoked, or expired key</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Rejected at gateway edge before consuming upstream quotas.
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-mono font-semibold text-status-warn">429 Too Many Requests</TableCell>
+              <TableCell className="text-xs text-foreground">Gateway key RPM limit exceeded</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Client exceeded configured requests-per-minute quota; retry after window reset.
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-mono font-semibold text-status-err">502 / 503 Unavailable</TableCell>
+              <TableCell className="text-xs text-foreground">All failover candidates exhausted</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                Failing credentials enter cooldown; circuit breakers evaluate threshold trips.
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </section>
     </div>
   );
 }
+
 export default ApiDocs;

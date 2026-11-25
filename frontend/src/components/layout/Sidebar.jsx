@@ -48,7 +48,7 @@ export const navigationSections = [
         name: 'API Keys',
         href: '/api-keys',
         icon: Key,
-        matchPaths: ['/api-keys', '/keys', '/api-docs', '/docs'],
+        matchPaths: ['/api-keys', '/keys'],
       },
     ],
   },

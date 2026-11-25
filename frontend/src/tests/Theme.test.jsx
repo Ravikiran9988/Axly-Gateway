@@ -21,8 +21,8 @@ describe('Theme Context & Switching', () => {
       </ThemeProvider>
     );
 
-    expect(screen.getByTestId('current-theme').textContent).toBe('light');
-    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(screen.getByTestId('current-theme').textContent).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 
   it('toggles to dark theme and updates documentElement class', () => {
@@ -35,13 +35,13 @@ describe('Theme Context & Switching', () => {
     const button = screen.getByText('Toggle');
     fireEvent.click(button);
 
-    expect(screen.getByTestId('current-theme').textContent).toBe('dark');
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
-    expect(localStorage.getItem('axly_theme')).toBe('dark');
+    expect(screen.getByTestId('current-theme').textContent).toBe('light');
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(localStorage.getItem('axly_theme')).toBe('light');
 
     // Toggle back
     fireEvent.click(button);
-    expect(screen.getByTestId('current-theme').textContent).toBe('light');
-    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(screen.getByTestId('current-theme').textContent).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
 });
