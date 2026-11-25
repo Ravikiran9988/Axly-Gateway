@@ -203,6 +203,58 @@ class RoutingEngine:
 
                 except Exception as stream_err:
                     logger.error(f"[req:{req_id}] Mid-stream failure on {cand.provider_name}: {stream_err}")
+                    classification = ErrorClassifier.classify(
+                        stream_err, provider_name=cand.provider_name
+                    )
+                    attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
+                    await CircuitBreakerManager.record_failure(
+                        db, "provider", cand.provider_name, classification.reason
+                    )
+                    cooldown_sec = await HealthTracker.record_attempt_result(
+                        db=db,
+                        credential_id=credential.credential_id,
+                        provider_name=cand.provider_name,
+                        quota_group_id=credential.quota_group_id,
+                        success=False,
+                        latency_ms=attempt_latency,
+                        classification=classification,
+                    )
+                    attempt_records.append(
+                        AttemptRecord(
+                            attempt_number=attempt_number,
+                            provider_name=cand.provider_name,
+                            model_identifier=cand.model_identifier,
+                            credential_id=credential.credential_id,
+                            credential_label=credential.label,
+                            started_at=attempt_start_dt,
+                            ended_at=utc_now(),
+                            latency_ms=round(attempt_latency, 2),
+                            result="failure",
+                            status_code=classification.status_code,
+                            error_category=classification.category.value,
+                            error_message=classification.reason,
+                            retry_decision="none",
+                            cooldown_applied=bool(cooldown_sec and cooldown_sec > 0),
+                            cooldown_seconds=cooldown_sec,
+                        )
+                    )
+                    decision = RoutingDecision(
+                        request_id=req_id,
+                        requested_model_or_alias=resolved.requested_name,
+                        resolved_profile=resolved.profile_name,
+                        routing_strategy=resolved.strategy,
+                        selected_provider=cand.provider_name,
+                        selected_provider_id=cand.provider_id,
+                        selected_model=cand.model_identifier,
+                        selected_credential_id=credential.credential_id,
+                        selected_credential_label=credential.label,
+                        attempts=attempt_records,
+                        total_latency_ms=round((time.monotonic() - start_mono) * 1000.0, 2),
+                        success=False,
+                        failure_reason=classification.reason,
+                        final_status_code=classification.status_code,
+                    )
+                    await FailoverExecutor._persist_history(db, decision)
                     error_payload = {
                         "error": {
                             "message": f"Stream interrupted mid-generation: {stream_err}",
@@ -210,8 +262,9 @@ class RoutingEngine:
                             "code": "STREAM_INTERRUPTED",
                         }
                     }
-                    yield f"data: {json.dumps(error_payload)}\n\n"
-                    yield "data: [DONE]\n\n"
+                    yield f"data: {json.dumps(error_payload)}\\n\\n"
+                    yield "data: [DONE]\\n\\n"
+                    return
 
                 # Record attempt success
                 attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
