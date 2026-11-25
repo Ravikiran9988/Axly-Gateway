@@ -153,3 +153,7 @@ async def test_admin_logs_and_analytics_endpoints(client: AsyncClient, db_sessio
     assert len(bd["by_provider"]) >= 1
     assert len(bd["by_model"]) >= 1
     assert len(bd["by_status"]) >= 2
+
+    diagnostics = await client.get("/api/admin/health/diagnostics", headers=auth_header)
+    assert diagnostics.status_code == 200
+    assert diagnostics.json()["data"]["providers"]["active"] == 1
