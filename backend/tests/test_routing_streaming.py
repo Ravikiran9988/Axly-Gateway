@@ -171,4 +171,4 @@ async def test_streaming_post_first_chunk_safe_termination(db_session: AsyncSess
     ).scalars().all()
     assert len(history) == 1
     assert history[0].result == "failure"
-    assert history[0].error_category == "unknown"
+    assert history[0].error_category == "service_unavailable"
