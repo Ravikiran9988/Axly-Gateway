@@ -1,11 +1,12 @@
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from unittest.mock import AsyncMock, patch
 
 from app.models.credential import ProviderCredential
 from app.models.gateway_key import GatewayApiKey
+from app.models.logs import RequestLog
 from app.models.model import Model
 from app.models.provider import Provider
 from app.providers.schemas import (
@@ -84,6 +85,8 @@ async def test_chat_completions_successful_routing(client: AsyncClient, db_sessi
         model_identifier="gpt-4o",
         display_name="GPT-4o",
         is_enabled=True,
+        input_price_per_million=2.0,
+        output_price_per_million=4.0,
     )
     db_session.add(model_record)
     await db_session.commit()
@@ -120,6 +123,30 @@ async def test_chat_completions_successful_routing(client: AsyncClient, db_sessi
         assert data["id"] == "chatcmpl-test-response"
         assert data["choices"][0]["message"]["content"] == "Hello from AXLY Gateway!"
         assert data["usage"]["total_tokens"] == 18
+
+    request_log = (
+        await db_session.execute(
+            select(RequestLog).where(RequestLog.request_id == resp.headers["X-Request-ID"])
+        )
+    ).scalar_one()
+    assert request_log.provider_id == provider.id
+    assert request_log.estimated_cost_usd == pytest.approx(0.000052)
+
+
+@pytest.mark.asyncio
+async def test_gateway_key_rate_limit_is_enforced(client: AsyncClient, db_session: AsyncSession):
+    _, raw_key = await create_gateway_key(
+        db_session, "One Request Per Minute", rate_limit_rpm=1
+    )
+    await db_session.commit()
+    headers = {"Authorization": f"Bearer {raw_key}"}
+
+    first = await client.get("/v1/models", headers=headers)
+    second = await client.get("/v1/models", headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["error"]["code"] == "GATEWAY_RATE_LIMIT_EXCEEDED"
 
 
 @pytest.mark.asyncio

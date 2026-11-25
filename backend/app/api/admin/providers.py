@@ -1,5 +1,6 @@
 import time
 import uuid
+from urllib.parse import urlsplit
 from typing import List
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
@@ -103,6 +104,28 @@ async def update_provider(
             message="Provider not found",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+
+    if "base_url" in payload.model_fields_set and payload.base_url:
+        parsed = urlsplit(payload.base_url)
+        expected_hosts = {
+            "gemini": "generativelanguage.googleapis.com",
+            "groq": "api.groq.com",
+            "openai": "api.openai.com",
+        }
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != expected_hosts.get(provider.name.lower())
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.port not in (None, 443)
+        ):
+            raise APIException(
+                code="INVALID_PROVIDER_BASE_URL",
+                message="base_url must use HTTPS and the official hostname for this provider",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(provider, field, value)
@@ -235,7 +258,7 @@ async def discover_provider_models(
     api_key = encryption_service.decrypt(active_cred.encrypted_api_key)
 
     registry = get_provider_registry()
-    adapter = registry.get(provider.name)
+    adapter = registry.get(provider.name, base_url=provider.base_url)
 
     try:
         discovered_cards = await adapter.discover_models(api_key)

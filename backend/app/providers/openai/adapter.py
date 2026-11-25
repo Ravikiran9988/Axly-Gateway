@@ -85,11 +85,11 @@ class OpenAIAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         headers = self._get_headers(api_key)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, headers=headers)
-                if resp.status_code != 200:
-                    self._handle_http_error(resp)
-                return True
+            client = self.get_http_client(10.0)
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                self._handle_http_error(resp)
+            return True
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError(f"Connection to OpenAI timed out: {exc}", provider=self.provider_name) from exc
         except httpx.RequestError as exc:
@@ -104,12 +104,12 @@ class OpenAIAdapter(BaseProviderAdapter):
         payload["stream"] = False
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(url, headers=headers, json=payload)
-                if resp.status_code != 200:
-                    self._handle_http_error(resp)
-                data = resp.json()
-                return from_openai_response(data, requested_model=request.model)
+            client = self.get_http_client(self.timeout)
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                self._handle_http_error(resp)
+            data = resp.json()
+            return from_openai_response(data, requested_model=request.model)
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError("OpenAI request timed out", provider=self.provider_name) from exc
         except httpx.RequestError as exc:
@@ -124,33 +124,33 @@ class OpenAIAdapter(BaseProviderAdapter):
         payload["stream"] = True
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream("POST", url, headers=headers, json=payload) as response:
-                    if response.status_code != 200:
-                        content = await response.aread()
-                        dummy_resp = httpx.Response(
-                            status_code=response.status_code,
-                            content=content,
-                            request=response.request,
-                        )
-                        self._handle_http_error(dummy_resp)
+            client = self.get_http_client(self.timeout)
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                if response.status_code != 200:
+                    content = await response.aread()
+                    dummy_resp = httpx.Response(
+                        status_code=response.status_code,
+                        content=content,
+                        request=response.request,
+                    )
+                    self._handle_http_error(dummy_resp)
 
-                    buffer = ""
-                    async for raw_bytes in response.aiter_bytes():
-                        buffer += raw_bytes.decode("utf-8", errors="replace")
-                        while "\n\n" in buffer:
-                            event_block, buffer = buffer.split("\n\n", 1)
-                            for line in event_block.splitlines():
-                                line = line.strip()
-                                if line.startswith("data:"):
-                                    json_str = line[5:].strip()
-                                    if not json_str or json_str == "[DONE]":
-                                        continue
-                                    try:
-                                        chunk_dict = json.loads(json_str)
-                                        yield from_openai_chunk(chunk_dict, requested_model=request.model)
-                                    except json.JSONDecodeError:
-                                        continue
+                buffer = ""
+                async for raw_bytes in response.aiter_bytes():
+                    buffer += raw_bytes.decode("utf-8", errors="replace")
+                    while "\n\n" in buffer:
+                        event_block, buffer = buffer.split("\n\n", 1)
+                        for line in event_block.splitlines():
+                            line = line.strip()
+                            if line.startswith("data:"):
+                                json_str = line[5:].strip()
+                                if not json_str or json_str == "[DONE]":
+                                    continue
+                                try:
+                                    chunk_dict = json.loads(json_str)
+                                    yield from_openai_chunk(chunk_dict, requested_model=request.model)
+                                except json.JSONDecodeError:
+                                    continue
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError("OpenAI stream timed out", provider=self.provider_name) from exc
         except httpx.RequestError as exc:
@@ -160,27 +160,27 @@ class OpenAIAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         headers = self._get_headers(api_key)
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, headers=headers)
-                if resp.status_code != 200:
-                    self._handle_http_error(resp)
-                data = resp.json().get("data", [])
-                result: List[ModelCard] = []
-                for m in data:
-                    model_id = m.get("id")
-                    if model_id and ("gpt" in model_id or "o1" in model_id or "o3" in model_id):
-                        result.append(
-                            ModelCard(
-                                id=model_id,
-                                owned_by=m.get("owned_by", "openai"),
-                                capabilities={
-                                    "streaming": True,
-                                    "temperature": True,
-                                    "top_p": True,
-                                },
-                            )
+            client = self.get_http_client(15.0)
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                self._handle_http_error(resp)
+            data = resp.json().get("data", [])
+            result: List[ModelCard] = []
+            for m in data:
+                model_id = m.get("id")
+                if model_id and ("gpt" in model_id or "o1" in model_id or "o3" in model_id):
+                    result.append(
+                        ModelCard(
+                            id=model_id,
+                            owned_by=m.get("owned_by", "openai"),
+                            capabilities={
+                                "streaming": True,
+                                "temperature": True,
+                                "top_p": True,
+                            },
                         )
-                return result
+                    )
+            return result
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError("OpenAI model discovery timed out", provider=self.provider_name) from exc
         except httpx.RequestError as exc:

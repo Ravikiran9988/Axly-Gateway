@@ -1,5 +1,6 @@
 import json
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +8,7 @@ from app.models.credential import ProviderCredential
 from app.models.health import CredentialHealth
 from app.models.model import Model
 from app.models.provider import Provider
+from app.models.routing_history import RoutingHistory
 from app.models.routing import ModelAlias, ModelAliasCandidate
 from app.providers.exceptions import ProviderUnavailableError
 from app.providers.schemas import (
@@ -147,7 +149,9 @@ async def test_streaming_post_first_chunk_safe_termination(db_session: AsyncSess
 
     with patch("app.providers.groq.adapter.GroqAdapter.stream_chat", side_effect=mock_midstream_failing_stream):
         chunks = []
-        async for sse_chunk in RoutingEngine.stream_chat(db=db_session, request=req):
+        async for sse_chunk in RoutingEngine.stream_chat(
+            db=db_session, request=req, request_id="test-midstream-failure"
+        ):
             chunks.append(sse_chunk)
 
         # Chunk 1: "Partial "
@@ -157,3 +161,14 @@ async def test_streaming_post_first_chunk_safe_termination(db_session: AsyncSess
         assert "Partial " in chunks[0]
         assert "STREAM_INTERRUPTED" in chunks[1]
         assert "data: [DONE]" in chunks[2]
+
+    history = (
+        await db_session.execute(
+            select(RoutingHistory).where(
+                RoutingHistory.request_id == "test-midstream-failure"
+            )
+        )
+    ).scalars().all()
+    assert len(history) == 1
+    assert history[0].result == "failure"
+    assert history[0].error_category == "service_unavailable"

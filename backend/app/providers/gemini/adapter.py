@@ -94,11 +94,11 @@ class GeminiAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         params = {"key": api_key, "pageSize": 1}
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
-                    self._handle_http_error(resp)
-                return True
+            client = self.get_http_client(10.0)
+            resp = await client.get(url, params=params)
+            if resp.status_code != 200:
+                self._handle_http_error(resp)
+            return True
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError(f"Connection to Gemini timed out: {exc}", provider=self.provider_name) from exc
         except httpx.RequestError as exc:
@@ -113,12 +113,12 @@ class GeminiAdapter(BaseProviderAdapter):
         payload = to_gemini_request(request)
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(url, params=params, json=payload)
-                if resp.status_code != 200:
-                    self._handle_http_error(resp)
-                data = resp.json()
-                return from_gemini_response(data, model_id=request.model)
+            client = self.get_http_client(self.timeout)
+            resp = await client.post(url, params=params, json=payload)
+            if resp.status_code != 200:
+                self._handle_http_error(resp)
+            data = resp.json()
+            return from_gemini_response(data, model_id=request.model)
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError("Gemini request timed out", provider=self.provider_name) from exc
         except httpx.RequestError as exc:
@@ -134,37 +134,37 @@ class GeminiAdapter(BaseProviderAdapter):
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream("POST", url, params=params, json=payload) as response:
-                    if response.status_code != 200:
-                        content = await response.aread()
-                        dummy_resp = httpx.Response(
-                            status_code=response.status_code,
-                            content=content,
-                            request=response.request,
-                        )
-                        self._handle_http_error(dummy_resp)
+            client = self.get_http_client(self.timeout)
+            async with client.stream("POST", url, params=params, json=payload) as response:
+                if response.status_code != 200:
+                    content = await response.aread()
+                    dummy_resp = httpx.Response(
+                        status_code=response.status_code,
+                        content=content,
+                        request=response.request,
+                    )
+                    self._handle_http_error(dummy_resp)
 
-                    buffer = ""
-                    async for raw_bytes in response.aiter_bytes():
-                        buffer += raw_bytes.decode("utf-8", errors="replace")
-                        while "\n\n" in buffer:
-                            event_block, buffer = buffer.split("\n\n", 1)
-                            for line in event_block.splitlines():
-                                line = line.strip()
-                                if line.startswith("data:"):
-                                    json_str = line[5:].strip()
-                                    if not json_str or json_str == "[DONE]":
-                                        continue
-                                    try:
-                                        chunk_dict = json.loads(json_str)
-                                        yield from_gemini_chunk(
-                                            chunk_dict,
-                                            completion_id=completion_id,
-                                            model_id=request.model,
-                                        )
-                                    except json.JSONDecodeError:
-                                        continue
+                buffer = ""
+                async for raw_bytes in response.aiter_bytes():
+                    buffer += raw_bytes.decode("utf-8", errors="replace")
+                    while "\n\n" in buffer:
+                        event_block, buffer = buffer.split("\n\n", 1)
+                        for line in event_block.splitlines():
+                            line = line.strip()
+                            if line.startswith("data:"):
+                                json_str = line[5:].strip()
+                                if not json_str or json_str == "[DONE]":
+                                    continue
+                                try:
+                                    chunk_dict = json.loads(json_str)
+                                    yield from_gemini_chunk(
+                                        chunk_dict,
+                                        completion_id=completion_id,
+                                        model_id=request.model,
+                                    )
+                                except json.JSONDecodeError:
+                                    continue
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError("Gemini stream timed out", provider=self.provider_name) from exc
         except httpx.RequestError as exc:
@@ -174,29 +174,29 @@ class GeminiAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         params = {"key": api_key, "pageSize": 100}
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
-                    self._handle_http_error(resp)
-                data = resp.json().get("models", [])
-                result: List[ModelCard] = []
-                for m in data:
-                    model_id = m.get("name", "").replace("models/", "")
-                    methods = m.get("supportedGenerationMethods", [])
-                    if "generateContent" in methods:
-                        result.append(
-                            ModelCard(
-                                id=model_id,
-                                owned_by="google",
-                                context_window=m.get("inputTokenLimit"),
-                                capabilities={
-                                    "streaming": True,
-                                    "temperature": True,
-                                    "top_p": True,
-                                },
-                            )
+            client = self.get_http_client(15.0)
+            resp = await client.get(url, params=params)
+            if resp.status_code != 200:
+                self._handle_http_error(resp)
+            data = resp.json().get("models", [])
+            result: List[ModelCard] = []
+            for m in data:
+                model_id = m.get("name", "").replace("models/", "")
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    result.append(
+                        ModelCard(
+                            id=model_id,
+                            owned_by="google",
+                            context_window=m.get("inputTokenLimit"),
+                            capabilities={
+                                "streaming": True,
+                                "temperature": True,
+                                "top_p": True,
+                            },
                         )
-                return result
+                    )
+            return result
         except httpx.TimeoutException as exc:
             raise UpstreamTimeoutError("Gemini model discovery timed out", provider=self.provider_name) from exc
         except httpx.RequestError as exc:

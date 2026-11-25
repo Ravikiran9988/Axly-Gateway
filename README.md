@@ -1,7 +1,7 @@
 # AXLY Gateway
 
 > **One API. Intelligent Routing. Reliable Failover.**  
-> *The unified, production-ready LLM gateway for your AI applications.*
+> *The self-hosted LLM gateway for your AI applications.*
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
@@ -32,12 +32,7 @@
 - **Quota Groups:** Link sibling keys sharing billing accounts to prevent redundant quota exhaustion attempts.
 - **Adaptive Cooldowns:** Automatic exponential backoff with jitter and respect for upstream `Retry-After` headers.
 - **Distributed Circuit Breakers:** Protect downstream callers from cascading failures (`CLOSED`, `HALF_OPEN`, `OPEN`).
-- **Transparent Execution Headers:** Explains routing decisions directly in response headers:
-  - `X-Axly-Request-Id`: Unique trace UUID
-  - `X-Axly-Provider`: Active handling provider
-  - `X-Axly-Model`: Resolved model identifier
-  - `X-Axly-Attempts`: Number of failover attempts made
-  - `X-Axly-Latency-Ms`: End-to-end processing latency
+- **Request correlation:** Responses include `X-Request-ID` for correlation with request and routing logs.
 
 ### 3. Professional Admin Dashboard
 - **Application Shell:** Responsive collapsible sidebar, breadcrumbs, notification system, and seamless light/dark theme toggle.
@@ -47,7 +42,7 @@
 - **Routing Engine Visualizer:** Drag-and-drop / priority reordering of failover candidate chains and profile management.
 - **Fallback & Recovery:** Live circuit breaker states with transition history logs, quota group status, and credential health overrides.
 - **Interactive Playground:** Real SSE streaming chat interface with model/alias selector, parameter sliders, abort controllers, and execution metadata.
-- **Gateway Client Keys:** Self-service issuance of client API keys (`axly-...`) with SHA-256 one-way hashing, per-minute rate limits, and copyable SDK snippets.
+- **Gateway Client Keys:** Self-service issuance of client API keys (`axly-...`) with SHA-256 one-way hashing, PostgreSQL-backed per-key request limits, and copyable SDK snippets.
 - **Request Logs:** Filterable, paginated audit logs with search, status codes, CSV export, and step-by-step routing journey inspector.
 - **Observability & Analytics:** Aggregate telemetry dashboards with P50/P95/P99 latency distribution and provider breakdown.
 - **Health Monitor:** Subsystem diagnostics for PostgreSQL pools, encryption, auth services, upstream providers, and auto-refresh intervals.
@@ -122,10 +117,20 @@
 ```bash
 git clone https://github.com/Ravikiran9988/Axly-Gateway.git
 cd Axly-Gateway
+# macOS / Linux
 cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
 ```
 
-Edit `.env` to configure your database connection string and secret keys.
+Edit `.env` to configure the database connection string and generate both security secrets. Run this command twice and paste one output into each secret field:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Do not reuse the example values from CI or another installation. For hosted deployments, set `ALLOWED_HOSTS` to the backend's actual hostname (for example, the Render service hostname) and set `CORS_ORIGINS` to the exact frontend origin.
 
 ### 2. Backend Installation & Startup
 
@@ -153,7 +158,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` in your browser. Complete the first-run administrator setup to access the dashboard.
+Open `http://localhost:5173` in your browser. Complete the first-run administrator setup to access the dashboard.
 
 ---
 
@@ -162,9 +167,10 @@ Open `http://localhost:3000` in your browser. Complete the first-run administrat
 ### Backend Test Suite
 ```bash
 cd backend
+alembic upgrade head
 pytest -v
 ```
-*Includes 75 automated tests covering authentication, credentials encryption, provider adapters, failover execution, streaming termination, circuit breakers, and concurrency.*
+The backend suite exercises authentication, credential encryption, provider adapters, failover, streaming, circuit breakers, quota handling, and concurrency. Check CI for the current passing test count.
 
 ### Frontend Vitest Suite
 ```bash

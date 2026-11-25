@@ -219,7 +219,7 @@ async def recover_credential(
         encryption_service = get_encryption_service()
         raw_key = encryption_service.decrypt(cred.encrypted_api_key)
         registry = get_provider_registry()
-        adapter = registry.get(cred.provider.name)
+        adapter = registry.get(cred.provider.name, base_url=cred.provider.base_url)
         try:
             await adapter.validate_credentials(raw_key)
         except Exception as exc:
@@ -269,7 +269,7 @@ async def test_credential_connectivity(
     raw_api_key = encryption_service.decrypt(cred.encrypted_api_key)
 
     registry = get_provider_registry()
-    adapter = registry.get(cred.provider.name)
+    adapter = registry.get(cred.provider.name, base_url=cred.provider.base_url)
 
     health_record = cred.health
     if not health_record:

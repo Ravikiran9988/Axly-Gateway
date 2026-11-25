@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import case, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import generate_gateway_key, hash_gateway_key
@@ -60,6 +60,40 @@ async def verify_gateway_key(
     db.add(key_record)
     await db.flush()
     return key_record
+
+
+async def consume_gateway_key_rate_limit(
+    db: AsyncSession, key_record: GatewayApiKey
+) -> int:
+    """Atomically consumes one request from this key's fixed 60-second rate window.
+
+    The counter is persisted in PostgreSQL and shared by application workers.
+    Commit immediately after this function so no key-row lock is held while
+    an upstream model request is running.
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now.replace(second=0, microsecond=0)
+    reset_window = or_(
+        GatewayApiKey.rate_limit_window_start.is_(None),
+        GatewayApiKey.rate_limit_window_start < window_start,
+    )
+    stmt = (
+        update(GatewayApiKey)
+        .where(GatewayApiKey.id == key_record.id)
+        .values(
+            rate_limit_window_start=case(
+                (reset_window, window_start),
+                else_=GatewayApiKey.rate_limit_window_start,
+            ),
+            rate_limit_window_count=case(
+                (reset_window, 1),
+                else_=GatewayApiKey.rate_limit_window_count + 1,
+            ),
+        )
+        .returning(GatewayApiKey.rate_limit_window_count)
+    )
+    result = await db.execute(stmt)
+    return int(result.scalar_one())
 
 
 async def list_gateway_keys(db: AsyncSession) -> List[GatewayApiKey]:

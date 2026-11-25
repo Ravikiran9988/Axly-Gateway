@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, List, Optional
+import httpx
+
 from app.providers.schemas import (
     ChatCompletionChunk,
     ChatCompletionRequest,
@@ -13,6 +15,27 @@ class BaseProviderAdapter(ABC):
     Abstract Base Class for LLM Provider Adapters.
     Normalizes requests, responses, streaming, model catalogs, and errors across providers.
     """
+
+    def get_http_client(self, timeout: float) -> httpx.AsyncClient:
+        """Return a reusable async HTTP client scoped to this adapter instance."""
+        clients = getattr(self, "_http_clients", None)
+        if clients is None:
+            clients = {}
+            self._http_clients = clients
+        key = float(timeout)
+        client = clients.get(key)
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient(timeout=timeout, trust_env=False)
+            clients[key] = client
+        return client
+
+    async def aclose(self) -> None:
+        """Close all pooled HTTP clients owned by this adapter."""
+        clients = getattr(self, "_http_clients", {})
+        for client in clients.values():
+            if not client.is_closed:
+                await client.aclose()
+        clients.clear()
 
     @property
     @abstractmethod

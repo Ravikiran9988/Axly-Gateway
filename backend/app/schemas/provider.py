@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from urllib.parse import urlsplit
+from pydantic import BaseModel, Field, field_validator
 
 
 class ProviderBase(BaseModel):
@@ -11,6 +12,34 @@ class ProviderBase(BaseModel):
     base_url: Optional[str] = None
     is_enabled: bool = True
     config_schema: Optional[dict] = None
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: Optional[str], info):
+        if value is None or not value.strip():
+            return None
+        parsed = urlsplit(value.strip())
+        expected_hosts = {
+            "gemini": "generativelanguage.googleapis.com",
+            "groq": "api.groq.com",
+            "openai": "api.openai.com",
+        }
+        provider_name = str(info.data.get("name", "")).lower()
+        expected_host = expected_hosts.get(provider_name)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.hostname.lower() != expected_host
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.port not in (None, 443)
+        ):
+            raise ValueError(
+                "Custom base_url must use HTTPS and the official hostname for the selected provider"
+            )
+        return value.strip().rstrip("/")
 
 
 class ProviderCreate(ProviderBase):
@@ -23,6 +52,24 @@ class ProviderUpdate(BaseModel):
     base_url: Optional[str] = None
     is_enabled: Optional[bool] = None
     config_schema: Optional[dict] = None
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: Optional[str]):
+        if value is None or not value.strip():
+            return None
+        parsed = urlsplit(value.strip())
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.port not in (None, 443)
+        ):
+            raise ValueError("base_url must use HTTPS without credentials, query, or fragment")
+        return value.strip().rstrip("/")
 
 
 class ProviderResponse(ProviderBase):

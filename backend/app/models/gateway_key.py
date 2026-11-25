@@ -14,6 +14,8 @@ class GatewayApiKey(Base, UUIDMixin, TimestampMixin):
     key_preview: Mapped[str] = mapped_column(String(32), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     rate_limit_rpm: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    rate_limit_window_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    rate_limit_window_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
