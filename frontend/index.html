@@ -1,13 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AXLY Gateway — One API. Intelligent Routing. Reliable Failover.</title>
+    <title>AXLY Gateway — One API. Intelligent Routing. Zero-Downtime Failover.</title>
     <meta name="description" content="The unified LLM gateway for your AI apps." />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='12 2 2 7 12 12 22 7 12 2'></polygon><polyline points='2 17 12 22 22 17'></polyline><polyline points='2 12 12 17 22 12'></polyline></svg>" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='2' fill='%23E32626'/><path d='M7 17L10.5 7H13.5L17 17M8.4 13.5H15.6' stroke='%23FFFFFF' stroke-width='2.1' stroke-linecap='square' fill='none'/></svg>" />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('axly_theme');
+          if (saved === 'light') {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="min-h-screen bg-background text-foreground antialiased selection:bg-primary/20">
+  <body class="min-h-screen bg-background text-foreground antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

@@ -3,7 +3,7 @@ import { cn } from '../../lib/utils';
 
 const TabsContext = createContext(null);
 
-export function Tabs({ defaultValue, value, onValueChange, className, children }) {
+export function Tabs({ defaultValue, value, onValueChange, variant = 'line', className, children }) {
   const [internalValue, setInternalValue] = useState(defaultValue);
   const activeValue = value !== undefined ? value : internalValue;
 
@@ -13,17 +13,33 @@ export function Tabs({ defaultValue, value, onValueChange, className, children }
   };
 
   return (
-    <TabsContext.Provider value={{ activeValue, handleSelect }}>
+    <TabsContext.Provider value={{ activeValue, handleSelect, variant }}>
       <div className={cn('w-full', className)}>{children}</div>
     </TabsContext.Provider>
   );
 }
 
 export function TabsList({ className, children }) {
+  const { variant } = useContext(TabsContext);
+  if (variant === 'segmented') {
+    return (
+      <div
+        role="tablist"
+        className={cn(
+          'inline-flex h-9 items-center justify-start rounded border border-border bg-surface-subtle p-1 text-muted-foreground',
+          className
+        )}
+      >
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div
+      role="tablist"
       className={cn(
-        'inline-flex h-9 items-center justify-start rounded-lg bg-muted p-1 text-muted-foreground',
+        'flex items-center gap-1 border-b border-border overflow-x-auto',
         className
       )}
     >
@@ -33,19 +49,42 @@ export function TabsList({ className, children }) {
 }
 
 export function TabsTrigger({ value, className, children, disabled }) {
-  const { activeValue, handleSelect } = useContext(TabsContext);
+  const { activeValue, handleSelect, variant } = useContext(TabsContext);
   const isActive = activeValue === value;
+
+  if (variant === 'segmented') {
+    return (
+      <button
+        type="button"
+        role="tab"
+        aria-selected={isActive}
+        disabled={disabled}
+        onClick={() => handleSelect(value)}
+        className={cn(
+          'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
+          isActive
+            ? 'bg-card text-foreground border border-border shadow-sm font-semibold'
+            : 'text-muted-foreground hover:text-foreground',
+          className
+        )}
+      >
+        {children}
+      </button>
+    );
+  }
 
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={isActive}
       disabled={disabled}
       onClick={() => handleSelect(value)}
       className={cn(
-        'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+        'relative inline-flex items-center justify-center whitespace-nowrap px-3.5 py-2.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45 border-b-2 -mb-px',
         isActive
-          ? 'bg-background text-foreground shadow-sm'
-          : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
+          ? 'border-primary text-foreground font-semibold'
+          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border',
         className
       )}
     >
@@ -60,8 +99,9 @@ export function TabsContent({ value, className, children }) {
 
   return (
     <div
+      role="tabpanel"
       className={cn(
-        'mt-4 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        'mt-4 focus-visible:outline-none',
         className
       )}
     >

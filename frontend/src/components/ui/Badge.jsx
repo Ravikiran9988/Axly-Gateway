@@ -8,24 +8,25 @@ export function Badge({
   ...props
 }) {
   const variants = {
-    default: 'border-transparent bg-primary text-primary-foreground shadow',
-    secondary: 'border-transparent bg-secondary text-secondary-foreground',
-    outline: 'border-border text-foreground',
-    destructive: 'border-transparent bg-destructive text-destructive-foreground shadow',
-    success: 'border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20',
-    warning: 'border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20',
+    default: 'border-primary/30 bg-primary/15 text-primary',
+    secondary: 'border-border bg-secondary text-secondary-foreground',
+    outline: 'border-border bg-transparent text-foreground',
+    route: 'border-route/30 bg-route/10 text-route',
+    destructive: 'border-status-err/30 bg-status-err/12 text-status-err',
+    success: 'border-status-ok/30 bg-status-ok/12 text-status-ok',
+    warning: 'border-status-warn/30 bg-status-warn/12 text-status-warn',
   };
 
   return (
-    <div
+    <span
       className={cn(
-        'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+        'inline-flex items-center rounded-sm border px-2 py-0.5 text-[11px] font-semibold tracking-wide transition-colors',
         variants[variant],
         className
       )}
       {...props}
     >
       {children}
-    </div>
+    </span>
   );
 }

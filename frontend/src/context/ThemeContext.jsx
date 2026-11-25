@@ -4,7 +4,11 @@ const ThemeContext = createContext();
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('axly_theme') || 'light';
+    try {
+      return localStorage.getItem('axly_theme') || 'dark';
+    } catch {
+      return 'dark';
+    }
   });
 
   useEffect(() => {
@@ -14,7 +18,11 @@ export function ThemeProvider({ children }) {
     } else {
       root.classList.remove('dark');
     }
-    localStorage.setItem('axly_theme', theme);
+    try {
+      localStorage.setItem('axly_theme', theme);
+    } catch {
+      // ignore storage failures
+    }
   }, [theme]);
 
   const toggleTheme = () => {

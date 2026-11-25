@@ -2,11 +2,12 @@ import { apiClient } from './client';
 
 export const credentialsApi = {
   listCredentials: async (providerId = null) => {
-    const endpoint = providerId
-      ? `/api/admin/credentials?provider_id=${providerId}`
-      : '/api/admin/credentials';
-    const res = await apiClient.get(endpoint);
-    return res.data || [];
+    const res = await apiClient.get('/api/admin/credentials');
+    const list = res.data || [];
+    if (providerId) {
+      return list.filter((c) => c.provider_id === providerId);
+    }
+    return list;
   },
 
   getCredential: async (id) => {

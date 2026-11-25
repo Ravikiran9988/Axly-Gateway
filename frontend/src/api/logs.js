@@ -24,13 +24,33 @@ export const logsApi = {
     return res.data;
   },
 
-  getExportCsvUrl: (params = {}) => {
+  exportCsv: async (params = {}) => {
     const q = new URLSearchParams();
     if (params.search) q.append('search', params.search);
     if (params.provider_id) q.append('provider_id', params.provider_id);
     if (params.status_filter) q.append('status_filter', params.status_filter);
     if (params.start_date) q.append('start_date', params.start_date);
     if (params.end_date) q.append('end_date', params.end_date);
-    return `/api/admin/logs/export/csv?${q.toString()}`;
+
+    const url = `/api/admin/logs/export/csv?${q.toString()}`;
+    const token = apiClient.getToken();
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    if (!res.ok) {
+      throw new Error(`Export failed with HTTP ${res.status}`);
+    }
+
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = `axly_request_logs_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
   },
 };

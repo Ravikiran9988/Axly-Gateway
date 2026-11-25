@@ -20,21 +20,23 @@ export class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       return (
         <div className="flex min-h-[400px] flex-col items-center justify-center p-8 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-            <AlertTriangle className="h-6 w-6" />
+          <div className="flex h-11 w-11 items-center justify-center rounded border border-status-err/30 bg-status-err/10 text-status-err">
+            <AlertTriangle className="h-5 w-5" />
           </div>
-          <h2 className="mt-4 text-lg font-semibold tracking-tight">Something went wrong</h2>
-          <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            {this.state.error?.message || 'An unexpected error occurred in the user interface.'}
+          <h2 className="mt-4 text-base font-semibold tracking-tight text-foreground">
+            Interface error encountered
+          </h2>
+          <p className="mt-1.5 max-w-md text-xs text-muted-foreground leading-relaxed">
+            {this.state.error?.message || 'An unexpected rendering issue interrupted this view.'}
           </p>
           <Button
             variant="outline"
             size="sm"
             onClick={() => window.location.reload()}
-            className="mt-6 gap-2"
+            className="mt-5 gap-2"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Reload Page
+            Reload Console
           </Button>
         </div>
       );

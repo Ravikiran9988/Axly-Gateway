@@ -56,3 +56,19 @@ frontend/dist-ssr/
 *~
 .DS_Store
 Thumbs.db
+
+# Impeccable runtime & ephemeral caches
+**/.impeccable/config.local.json
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+**/.impeccable/*.png
+**/.impeccable/mocks/
+**/.impeccable/review/
+**/.impeccable/questions/
+**/.impeccable/brief-app.md
+**/.impeccable/live/server.json
+**/.impeccable/live/sessions/
+**/.impeccable/live/previews/
+**/.impeccable/live/annotations/
+**/.impeccable/live/cache/
+**/.impeccable/live/*.png

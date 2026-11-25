@@ -8,18 +8,25 @@ export default {
   theme: {
     container: {
       center: true,
-      padding: '2rem',
+      padding: '1.5rem',
       screens: {
-        '2xl': '1400px',
+        '2xl': '1440px',
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['"Public Sans"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Consolas', 'monospace'],
+      },
       colors: {
         border: 'hsl(var(--border))',
+        'rule-strong': 'hsl(var(--rule-strong))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
+        rail: 'hsl(var(--rail))',
+        'surface-subtle': 'hsl(var(--surface-subtle))',
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
@@ -48,13 +55,17 @@ export default {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        route: 'hsl(var(--accent-route))',
+        'status-ok': 'hsl(var(--status-ok))',
+        'status-warn': 'hsl(var(--status-warn))',
+        'status-err': 'hsl(var(--status-err))',
       },
       borderRadius: {
         lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        md: 'calc(var(--radius) - 1px)',
+        sm: '2px',
       },
     },
   },
   plugins: [],
-}
+};

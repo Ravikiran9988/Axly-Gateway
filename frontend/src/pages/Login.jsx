@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Cpu, Lock } from 'lucide-react';
+import { AlertCircle, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { useToast } from '../components/ui/Toast';
 
 export function Login() {
@@ -14,6 +14,7 @@ export function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { login } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
@@ -27,7 +28,7 @@ export function Login() {
 
     try {
       await login(email, password);
-      toast.success('Signed in successfully');
+      toast.success('Signed in to gateway console');
       navigate(from, { replace: true });
     } catch (err) {
       setError(err.message || 'Invalid administrator email or password');
@@ -37,63 +38,87 @@ export function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md">
-            <Cpu className="h-6 w-6" />
+    <div className="relative flex min-h-screen items-center justify-center bg-background px-4 py-10">
+      <div className="absolute right-4 top-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+        >
+          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
+      </div>
+
+      <div className="w-full max-w-sm space-y-6">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex items-center justify-center rounded-sm bg-primary px-2 py-0.5 font-mono text-xs font-bold tracking-wider text-primary-foreground">
+              AXLY
+            </span>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">AXLY Gateway</h1>
           </div>
-          <h1 className="mt-4 text-2xl font-bold tracking-tight text-foreground">AXLY Gateway</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            The unified LLM gateway for your AI apps.
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            One API. Intelligent Routing. Zero-Downtime Failover.
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Administrator Login</CardTitle>
-            <CardDescription>
-              Sign in with your configured administrator credentials to access the gateway console.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="rounded-md bg-destructive/10 p-3 text-xs text-destructive border border-destructive/20">
-                  {error}
-                </div>
-              )}
+        <div className="rounded border border-border bg-card p-6 rule-strong-t">
+          <div className="pb-4 border-b border-border">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              Administrator Login
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Authenticate to manage upstream providers, credentials, and routing policies.
+            </p>
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Admin Email</label>
-                <Input
-                  type="email"
-                  required
-                  placeholder="admin@yourdomain.local"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                />
+          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            {error && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded border border-status-err/40 bg-status-err/10 p-3 text-xs text-status-err"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{error}</span>
               </div>
+            )}
 
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Password</label>
-                <Input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <label htmlFor="login-email" className="text-xs font-medium text-foreground block">
+                Admin Email
+              </label>
+              <Input
+                id="login-email"
+                type="email"
+                required
+                placeholder="admin@yourdomain.local"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+              />
+            </div>
 
-              <Button type="submit" className="w-full mt-2" disabled={isSubmitting}>
-                {isSubmitting ? 'Authenticating...' : 'Sign In'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+            <div className="space-y-1.5">
+              <label htmlFor="login-password" className="text-xs font-medium text-foreground block">
+                Password
+              </label>
+              <Input
+                id="login-password"
+                type="password"
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? 'Authenticating...' : 'Sign In'}
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   );
