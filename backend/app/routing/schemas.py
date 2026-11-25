@@ -118,6 +118,7 @@ class RoutingDecision(BaseModel):
     resolved_profile: Optional[str] = None
     routing_strategy: str = "priority"
     selected_provider: Optional[str] = None
+    selected_provider_id: Optional[uuid.UUID] = None
     selected_model: Optional[str] = None
     selected_credential_id: Optional[uuid.UUID] = None
     selected_credential_label: Optional[str] = None
