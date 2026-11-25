@@ -94,8 +94,8 @@ class GeminiAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         params = {"key": api_key, "pageSize": 1}
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, params=params)
+            client = self.get_http_client(10.0)
+            resp = await client.get(url, params=params)
                 if resp.status_code != 200:
                     self._handle_http_error(resp)
                 return True
@@ -113,8 +113,8 @@ class GeminiAdapter(BaseProviderAdapter):
         payload = to_gemini_request(request)
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(url, params=params, json=payload)
+            client = self.get_http_client(self.timeout)
+            resp = await client.post(url, params=params, json=payload)
                 if resp.status_code != 200:
                     self._handle_http_error(resp)
                 data = resp.json()
@@ -134,8 +134,8 @@ class GeminiAdapter(BaseProviderAdapter):
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream("POST", url, params=params, json=payload) as response:
+            client = self.get_http_client(self.timeout)
+            async with client.stream("POST", url, params=params, json=payload) as response:
                     if response.status_code != 200:
                         content = await response.aread()
                         dummy_resp = httpx.Response(
@@ -174,8 +174,8 @@ class GeminiAdapter(BaseProviderAdapter):
         url = f"{self.base_url}/models"
         params = {"key": api_key, "pageSize": 100}
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(url, params=params)
+            client = self.get_http_client(15.0)
+            resp = await client.get(url, params=params)
                 if resp.status_code != 200:
                     self._handle_http_error(resp)
                 data = resp.json().get("models", [])
