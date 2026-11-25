@@ -82,6 +82,7 @@ class ModelResolver:
                     RoutingCandidate(
                         provider_name=provider.name,
                         provider_id=provider.id,
+                        base_url=provider.base_url,
                         model_identifier=model.model_identifier,
                         model_id=model.id,
                         priority=cand_row.priority,
@@ -125,6 +126,7 @@ class ModelResolver:
             candidate = RoutingCandidate(
                 provider_name=provider.name,
                 provider_id=provider.id,
+                base_url=provider.base_url,
                 model_identifier=model_row.model_identifier,
                 model_id=model_row.id,
                 priority=1,
@@ -158,6 +160,7 @@ class ModelResolver:
             candidate = RoutingCandidate(
                 provider_name=prov.name,
                 provider_id=prov.id,
+                base_url=prov.base_url,
                 model_identifier=upstream_model,
                 model_id=uuid.uuid4(),  # Synthetic model ID for uncataloged explicit request
                 priority=1,
