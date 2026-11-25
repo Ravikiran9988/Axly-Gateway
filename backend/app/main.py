@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import Depends, FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin.router import router as admin_router
@@ -47,6 +48,7 @@ register_exception_handlers(app)
 # Register Middlewares
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
