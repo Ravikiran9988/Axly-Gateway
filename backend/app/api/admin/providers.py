@@ -235,7 +235,7 @@ async def discover_provider_models(
     api_key = encryption_service.decrypt(active_cred.encrypted_api_key)
 
     registry = get_provider_registry()
-    adapter = registry.get(provider.name)
+    adapter = registry.get(provider.name, base_url=provider.base_url)
 
     try:
         discovered_cards = await adapter.discover_models(api_key)
