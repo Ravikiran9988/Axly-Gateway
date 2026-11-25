@@ -10,7 +10,7 @@ from app.middleware.error_handler import APIException
 from app.models.admin import Administrator
 from app.models.gateway_key import GatewayApiKey
 from app.services.auth import get_admin_by_id
-from app.services.key_service import verify_gateway_key
+from app.services.key_service import consume_gateway_key_rate_limit, verify_gateway_key
 
 # Bearer token auth scheme
 security_bearer = HTTPBearer(auto_error=False)
@@ -83,6 +83,17 @@ async def get_current_gateway_key(
             code="INVALID_GATEWAY_KEY",
             message="Provided gateway API key is invalid, expired, or revoked",
             status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    request_count = await consume_gateway_key_rate_limit(db, key_record)
+    # Persist and release the row lock before the potentially long provider call.
+    await db.commit()
+    if request_count > key_record.rate_limit_rpm:
+        raise APIException(
+            code="GATEWAY_RATE_LIMIT_EXCEEDED",
+            message=f"Gateway API key limit exceeded ({key_record.rate_limit_rpm} requests per minute).",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            details={"limit": key_record.rate_limit_rpm, "window": "60 seconds"},
         )
 
     return key_record
