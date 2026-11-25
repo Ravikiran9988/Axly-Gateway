@@ -21,12 +21,12 @@ import {
 
 import { routingApi } from '../api/routing';
 import { modelsApi } from '../api/models';
-import { apiClient } from '../api/client';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
+import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
 import { useToast } from '../components/ui/Toast';
 
@@ -46,6 +46,7 @@ export function Playground() {
 
   // Playground state
   const [selectedModelOrAlias, setSelectedModelOrAlias] = useState('fast');
+  const [gatewayApiKey, setGatewayApiKey] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('You are AXLY, a helpful and precise AI assistant.');
   const [userInput, setUserInput] = useState('');
   const [messages, setMessages] = useState([
@@ -110,6 +111,10 @@ export function Playground() {
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
+    if (!gatewayApiKey.trim()) {
+      addToast('Enter a Gateway API key from the API Keys page before sending a request.', 'error');
+      return;
+    }
     if (!userInput.trim() || isLoading) return;
 
     const userText = userInput.trim();
@@ -141,13 +146,10 @@ export function Playground() {
     const startTime = performance.now();
 
     try {
-      const token = apiClient.getToken();
       const headers = {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${gatewayApiKey.trim()}`,
       };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const response = await fetch('/v1/chat/completions', {
         method: 'POST',
@@ -403,7 +405,7 @@ export function Playground() {
                   <span>Stop</span>
                 </Button>
               ) : (
-                <Button type="submit" disabled={!userInput.trim()} className="h-10 px-4 gap-1.5 text-xs">
+                <Button type="submit" disabled={!userInput.trim() || !gatewayApiKey.trim()} className="h-10 px-4 gap-1.5 text-xs">
                   <Send className="h-3.5 w-3.5" />
                   <span>Send</span>
                 </Button>
@@ -414,6 +416,32 @@ export function Playground() {
 
         {/* Right: Parameters & System Configuration (4 cols) */}
         <div className="lg:col-span-4 space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-bold tracking-wider text-muted-foreground uppercase">
+                Gateway Authentication
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs">
+              <label className="font-semibold block text-foreground" htmlFor="playground-gateway-key">
+                Gateway API key
+              </label>
+              <Input
+                id="playground-gateway-key"
+                type="password"
+                autoComplete="off"
+                placeholder="axly_live_..."
+                value={gatewayApiKey}
+                onChange={(e) => setGatewayApiKey(e.target.value)}
+                className="h-9 text-xs"
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Create a client key in API Keys. Your administrator login token is not accepted by the LLM API.
+                This key stays in this page's memory and is not saved to browser storage.
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-xs font-bold tracking-wider text-muted-foreground uppercase flex items-center justify-between">
