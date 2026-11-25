@@ -117,7 +117,11 @@
 ```bash
 git clone https://github.com/Ravikiran9988/Axly-Gateway.git
 cd Axly-Gateway
+# macOS / Linux
 cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
 ```
 
 Edit `.env` to configure the database connection string and generate both security secrets. Run this command twice and paste one output into each secret field:
@@ -126,7 +130,7 @@ Edit `.env` to configure the database connection string and generate both securi
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Do not reuse the example values from CI or another installation.
+Do not reuse the example values from CI or another installation. For hosted deployments, set `ALLOWED_HOSTS` to the backend's actual hostname (for example, the Render service hostname) and set `CORS_ORIGINS` to the exact frontend origin.
 
 ### 2. Backend Installation & Startup
 
