@@ -246,6 +246,7 @@ class RoutingEngine:
                     resolved_profile=resolved.profile_name,
                     routing_strategy=resolved.strategy,
                     selected_provider=cand.provider_name,
+                    selected_provider_id=cand.provider_id,
                     selected_model=cand.model_identifier,
                     selected_credential_id=credential.credential_id,
                     selected_credential_label=credential.label,
