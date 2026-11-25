@@ -164,7 +164,7 @@ class RoutingEngine:
             attempt_start_dt = utc_now()
 
             registry = get_provider_registry()
-            adapter = registry.get(cand.provider_name)
+            adapter = registry.get(cand.provider_name, base_url=cand.base_url)
             upstream_request = request.model_copy(update={"model": cand.model_identifier})
 
             # Attempt stream initialization
