@@ -181,8 +181,8 @@ class ErrorClassifier:
     def _has_explicit_quota_signal(cls, message: str, details: Dict[str, Any]) -> bool:
         """Recognize explicit quota/rate-limit codes and phrases, not incidental substrings."""
         phrase_pattern = re.compile(
-            r"\\b(rate[\\s_-]+limit|quota[\\s_-]+exceeded|insufficient[\\s_-]+quota|"
-            r"resource[\\s_-]+exhausted|daily[\\s_-]+quota|billing[\\s_-]+hard[\\s_-]+limit)\\b",
+            r"\b(rate[\s_-]+limit|quota[\s_-]+exceeded|insufficient[\s_-]+quota|"
+            r"resource[\s_-]+exhausted|daily[\s_-]+quota|billing[\s_-]+hard[\s_-]+limit)\b",
             re.IGNORECASE,
         )
         if phrase_pattern.search(message or ""):
