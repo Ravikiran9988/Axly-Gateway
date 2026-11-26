@@ -125,6 +125,9 @@ def test_shared_quota_does_not_requeue_sibling_keys_in_same_quota_group():
     assert RetryController.should_try_next_credential(quota, uuid.uuid4()) is False
     assert RetryController.should_try_next_credential(quota, None) is True
 
+    provider_quota = quota.model_copy(update={"scope": QuotaScope.PROVIDER})
+    assert RetryController.should_try_next_credential(provider_quota, uuid.uuid4()) is False
+
 
 @pytest.mark.asyncio
 async def test_client_errors_do_not_increment_provider_circuit_breaker(db_session: AsyncSession):
