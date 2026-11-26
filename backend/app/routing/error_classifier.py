@@ -230,7 +230,10 @@ class ErrorClassifier:
                 "quota exceeded",
                 "project quota",
                 "daily limit",
+                "daily quota",
+                "daily_quota_exceeded",
                 "requests per day",
+                "billing_hard_limit_reached",
                 "billing",
                 "tier limit",
             )
