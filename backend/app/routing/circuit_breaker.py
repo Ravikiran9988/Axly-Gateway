@@ -34,7 +34,8 @@ class CircuitBreakerManager:
             CircuitBreaker.scope_id == scope_id,
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            # Refresh identity-map state after acquiring the row lock.
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
 
         cb = (await db.execute(stmt)).scalar_one_or_none()
         if not cb:
@@ -67,19 +68,29 @@ class CircuitBreakerManager:
         scope_id: str,
     ) -> Tuple[bool, str]:
         """
-        Evaluates whether a request can proceed through the circuit breaker.
-        Transitions OPEN -> HALF_OPEN when recovery timeout has elapsed.
+        Check breaker eligibility without holding a row lock during the upstream call.
+
+        CLOSED is the common path and is a lock-free read. OPEN/HALF_OPEN are re-read
+        under a short lock; any state transition/probe reservation is committed before
+        returning to the caller.
         """
+        cb = await cls.get_or_create(db, scope_type, scope_id, for_update=False)
+        if cb.state == CircuitBreakerStateEnum.CLOSED.value:
+            # Release the read transaction/pooled connection before network I/O.
+            await db.commit()
+            return True, "Circuit breaker is CLOSED (normal operation)"
+
+        # Slow path: serialize only state transitions and half-open probe reservations.
         cb = await cls.get_or_create(db, scope_type, scope_id, for_update=True)
         now = utc_now()
 
         if cb.state == CircuitBreakerStateEnum.CLOSED.value:
-            return True, "Circuit breaker is CLOSED (normal operation)"
-
-        if cb.state == CircuitBreakerStateEnum.OPEN.value:
-            recovery_deadline = cb.last_state_change + timedelta(seconds=cb.recovery_timeout_seconds)
+            allowed, reason = True, "Circuit breaker is CLOSED (normal operation)"
+        elif cb.state == CircuitBreakerStateEnum.OPEN.value:
+            recovery_deadline = cb.last_state_change + timedelta(
+                seconds=cb.recovery_timeout_seconds
+            )
             if now >= recovery_deadline:
-                # Transition OPEN -> HALF_OPEN
                 old_state = cb.state
                 cb.state = CircuitBreakerStateEnum.HALF_OPEN.value
                 cb.current_half_open_probes = 1
@@ -91,22 +102,35 @@ class CircuitBreakerManager:
                     "timestamp": now.isoformat(),
                     "reason": "Recovery timeout elapsed; initiating trial probe",
                 })
-                cb.history = history[-50:]  # Keep latest 50 transitions
-                await db.flush()
-                logger.info(f"Circuit breaker [{scope_type}:{scope_id}] transitioned OPEN -> HALF_OPEN (probe allowed)")
-                return True, "Circuit breaker is HALF_OPEN (trial probe allowed)"
+                cb.history = history[-50:]
+                allowed, reason = True, "Circuit breaker is HALF_OPEN (trial probe allowed)"
+                logger.info(
+                    "Circuit breaker [%s:%s] transitioned OPEN -> HALF_OPEN (probe allowed)",
+                    scope_type,
+                    scope_id,
+                )
             else:
                 remaining = (recovery_deadline - now).total_seconds()
-                return False, f"Circuit breaker is OPEN ({remaining:.1f}s until recovery probe, reason: {cb.last_error_reason})"
-
-        if cb.state == CircuitBreakerStateEnum.HALF_OPEN.value:
+                allowed, reason = False, (
+                    f"Circuit breaker is OPEN ({remaining:.1f}s until recovery probe, "
+                    f"reason: {cb.last_error_reason})"
+                )
+        elif cb.state == CircuitBreakerStateEnum.HALF_OPEN.value:
             if cb.current_half_open_probes < cb.half_open_probes_allowed:
                 cb.current_half_open_probes += 1
-                await db.flush()
-                return True, "Circuit breaker is HALF_OPEN (additional trial probe permitted)"
-            return False, "Circuit breaker is HALF_OPEN (max concurrent trial probes already active)"
+                allowed, reason = True, (
+                    "Circuit breaker is HALF_OPEN (additional trial probe permitted)"
+                )
+            else:
+                allowed, reason = False, (
+                    "Circuit breaker is HALF_OPEN (max concurrent trial probes already active)"
+                )
+        else:
+            allowed, reason = True, "Unknown state (allowing request)"
 
-        return True, "Unknown state (allowing request)"
+        # Release the row lock before the caller performs upstream I/O.
+        await db.commit()
+        return allowed, reason
 
     @classmethod
     async def record_success(
