@@ -12,7 +12,7 @@ from app.models.provider import Provider
 from app.models.quota import QuotaGroup
 from app.routing.cooldown_manager import CooldownManager
 from app.routing.quota_manager import QuotaManager
-from app.routing.schemas import ErrorClassification, QuotaScope
+from app.routing.schemas import ErrorCategory, ErrorClassification, QuotaScope
 
 logger = logging.getLogger("axly.routing.health_tracker")
 
@@ -58,6 +58,14 @@ class HealthTracker:
                 )
                 await db.execute(stmt)
                 await db.flush()
+            return None
+
+        # Client/request-level failures must not degrade credential health or trigger cooldowns.
+        if classification and classification.category in (
+            ErrorCategory.BAD_REQUEST,
+            ErrorCategory.SAFETY_BLOCKED,
+            ErrorCategory.MODEL_NOT_FOUND,
+        ):
             return None
 
         # Failure handling
