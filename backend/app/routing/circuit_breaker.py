@@ -191,7 +191,10 @@ class CircuitBreakerManager:
             }
             if (
                 classification.category not in provider_failure_categories
-                or classification.status_code < 500
+                or (
+                    classification.category == ErrorCategory.UNKNOWN
+                    and classification.status_code < 500
+                )
             ):
                 logger.debug(
                     "Ignoring non-provider failure for circuit breaker [%s:%s] (%s, HTTP %s)",
