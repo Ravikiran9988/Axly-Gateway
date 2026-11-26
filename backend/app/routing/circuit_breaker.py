@@ -33,9 +33,11 @@ class CircuitBreakerManager:
             CircuitBreaker.scope_type == scope_type,
             CircuitBreaker.scope_id == scope_id,
         )
+        # Always refresh the identity-map copy. The CLOSED fast path is intentionally
+        # lock-free, but it must not read stale breaker state from this session.
+        stmt = stmt.execution_options(populate_existing=True)
         if for_update:
-            # Refresh identity-map state after acquiring the row lock.
-            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+            stmt = stmt.with_for_update()
 
         cb = (await db.execute(stmt)).scalar_one_or_none()
         if not cb:
