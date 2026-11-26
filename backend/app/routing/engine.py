@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from collections import deque
 import uuid
 from typing import AsyncGenerator, Optional, Tuple
 from fastapi import Request
@@ -102,7 +103,6 @@ class RoutingEngine:
         )
 
         attempt_records = []
-        attempted_pairs = set()
         attempted_credential_ids = set()
         attempt_number = 0
 
@@ -113,10 +113,11 @@ class RoutingEngine:
         completion_tokens = 0
         total_tokens = 0
 
-        for cand in ordered_candidates:
+        # Try sibling credentials before moving to the next provider/model candidate.
+        queue = deque(ordered_candidates)
+        while queue:
+            cand = queue.popleft()
             pair_key = f"{cand.provider_name}:{cand.model_identifier}".lower()
-            if pair_key in attempted_pairs:
-                continue
 
             # Circuit breaker check
             cb_allowed, cb_reason = await CircuitBreakerManager.can_execute(db, "provider", cand.provider_name)
@@ -155,7 +156,6 @@ class RoutingEngine:
                 continue
 
             attempt_number += 1
-            attempted_pairs.add(pair_key)
             attempted_credential_ids.add(credential.credential_id)
             active_candidate = cand
             active_credential = credential
@@ -168,6 +168,7 @@ class RoutingEngine:
             upstream_request = request.model_copy(update={"model": cand.model_identifier})
 
             # Attempt stream initialization
+            stream_iter = None
             try:
                 stream_iter = adapter.stream_chat(upstream_request, credential.decrypted_api_key)
 
@@ -176,7 +177,15 @@ class RoutingEngine:
 
                 # Pre-first chunk succeeded! Lock stream to this candidate
                 first_chunk_emitted = True
-                await CircuitBreakerManager.record_success(db, "provider", cand.provider_name)
+                try:
+                    await CircuitBreakerManager.record_success(db, "provider", cand.provider_name)
+                    await db.commit()
+                except Exception:
+                    logger.exception("[req:%s] Breaker success bookkeeping failed for %s", req_id, cand.provider_name)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        logger.exception("[req:%s] Database rollback failed", req_id)
 
                 # Yield initial chunk (preserve requested model name for alias requests)
                 if resolved.is_alias:
@@ -207,18 +216,31 @@ class RoutingEngine:
                         stream_err, provider_name=cand.provider_name
                     )
                     attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
-                    await CircuitBreakerManager.record_failure(
-                        db, "provider", cand.provider_name, classification.reason
-                    )
-                    cooldown_sec = await HealthTracker.record_attempt_result(
-                        db=db,
-                        credential_id=credential.credential_id,
-                        provider_name=cand.provider_name,
-                        quota_group_id=credential.quota_group_id,
-                        success=False,
-                        latency_ms=attempt_latency,
-                        classification=classification,
-                    )
+                    cooldown_sec = None
+                    try:
+                        await CircuitBreakerManager.record_failure(
+                            db,
+                            "provider",
+                            cand.provider_name,
+                            classification.reason,
+                            classification=classification,
+                        )
+                        cooldown_sec = await HealthTracker.record_attempt_result(
+                            db=db,
+                            credential_id=credential.credential_id,
+                            provider_name=cand.provider_name,
+                            quota_group_id=credential.quota_group_id,
+                            success=False,
+                            latency_ms=attempt_latency,
+                            classification=classification,
+                        )
+                        await db.commit()
+                    except Exception:
+                        logger.exception("[req:%s] Mid-stream failure bookkeeping failed", req_id)
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            logger.exception("[req:%s] Database rollback failed", req_id)
                     attempt_records.append(
                         AttemptRecord(
                             attempt_number=attempt_number,
@@ -268,15 +290,23 @@ class RoutingEngine:
 
                 # Record attempt success
                 attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
-                await HealthTracker.record_attempt_result(
-                    db=db,
-                    credential_id=credential.credential_id,
-                    provider_name=cand.provider_name,
-                    quota_group_id=credential.quota_group_id,
-                    success=True,
-                    latency_ms=attempt_latency,
-                    tokens_count=total_tokens,
-                )
+                try:
+                    await HealthTracker.record_attempt_result(
+                        db=db,
+                        credential_id=credential.credential_id,
+                        provider_name=cand.provider_name,
+                        quota_group_id=credential.quota_group_id,
+                        success=True,
+                        latency_ms=attempt_latency,
+                        tokens_count=total_tokens,
+                    )
+                    await db.commit()
+                except Exception:
+                    logger.exception("[req:%s] Stream success bookkeeping failed for %s", req_id, cand.provider_name)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        logger.exception("[req:%s] Database rollback failed", req_id)
                 attempt_records.append(
                     AttemptRecord(
                         attempt_number=attempt_number,
@@ -311,27 +341,42 @@ class RoutingEngine:
                 await FailoverExecutor._persist_history(db, decision)
                 return
 
-            except StopAsyncIteration:
-                # Stream finished immediately without chunks
-                yield "data: [DONE]\n\n"
-                return
-
             except Exception as pre_stream_exc:
                 # Upstream connection failed BEFORE first chunk reached the client!
                 # We can safely fallback to the next candidate!
                 attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
+                if isinstance(pre_stream_exc, StopAsyncIteration):
+                    pre_stream_exc = ProviderUnavailableError(
+                        "Upstream stream ended before the first chunk",
+                        provider=cand.provider_name,
+                    )
                 classification = ErrorClassifier.classify(pre_stream_exc, provider_name=cand.provider_name)
 
-                await CircuitBreakerManager.record_failure(db, "provider", cand.provider_name, classification.reason)
-                cooldown_sec = await HealthTracker.record_attempt_result(
-                    db=db,
-                    credential_id=credential.credential_id,
-                    provider_name=cand.provider_name,
-                    quota_group_id=credential.quota_group_id,
-                    success=False,
-                    latency_ms=attempt_latency,
-                    classification=classification,
-                )
+                cooldown_sec = None
+                try:
+                    await CircuitBreakerManager.record_failure(
+                        db,
+                        "provider",
+                        cand.provider_name,
+                        classification.reason,
+                        classification=classification,
+                    )
+                    cooldown_sec = await HealthTracker.record_attempt_result(
+                        db=db,
+                        credential_id=credential.credential_id,
+                        provider_name=cand.provider_name,
+                        quota_group_id=credential.quota_group_id,
+                        success=False,
+                        latency_ms=attempt_latency,
+                        classification=classification,
+                    )
+                    await db.commit()
+                except Exception:
+                    logger.exception("[req:%s] Pre-stream failure bookkeeping failed", req_id)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        logger.exception("[req:%s] Database rollback failed", req_id)
 
                 should_retry, _ = RetryController.should_retry(
                     attempt=attempt_number,
@@ -364,7 +409,22 @@ class RoutingEngine:
                 if not should_retry:
                     break
 
-                await RetryController.apply_bounded_backoff(attempt_number)
+                if RetryController.should_try_next_credential(
+                    classification, credential.quota_group_id
+                ):
+                    queue.appendleft(cand)
+
+                await RetryController.apply_bounded_backoff(
+                    attempt_number, retry_after=classification.retry_after_seconds
+                )
+            finally:
+                if stream_iter is not None:
+                    close_stream = getattr(stream_iter, "aclose", None)
+                    if close_stream is not None:
+                        try:
+                            await close_stream()
+                        except Exception:
+                            logger.debug("[req:%s] Upstream stream close failed", req_id, exc_info=True)
 
         # If loop finishes without successfully starting stream
         error_chunk = {
