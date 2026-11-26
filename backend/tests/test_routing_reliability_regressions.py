@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 
 import httpx
+import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -146,6 +147,23 @@ async def test_client_errors_do_not_increment_provider_circuit_breaker(db_sessio
     breaker = await CircuitBreakerManager.get_or_create(db_session, scope_type, scope_id)
     assert breaker.current_failures == 0
 
+    timeout_request = httpx.Request("POST", "https://provider.example/v1")
+    timeout_response = httpx.Response(408, request=timeout_request)
+    timeout_error = ErrorClassifier.classify(
+        httpx.HTTPStatusError("upstream request timeout", request=timeout_request, response=timeout_response)
+    )
+    assert timeout_error.category == ErrorCategory.TIMEOUT
+    await CircuitBreakerManager.record_failure(
+        db_session,
+        scope_type,
+        scope_id,
+        timeout_error.reason,
+        classification=timeout_error,
+    )
+    await db_session.commit()
+    breaker = await CircuitBreakerManager.get_or_create(db_session, scope_type, scope_id)
+    assert breaker.current_failures == 1
+
     upstream_error = ErrorClassifier.classify(
         ProviderUnavailableError("provider outage", provider="openai")
     )
@@ -159,7 +177,7 @@ async def test_client_errors_do_not_increment_provider_circuit_breaker(db_sessio
     await db_session.commit()
 
     breaker = await CircuitBreakerManager.get_or_create(db_session, scope_type, scope_id)
-    assert breaker.current_failures == 1
+    assert breaker.current_failures == 2
 
 
 @pytest.mark.asyncio
