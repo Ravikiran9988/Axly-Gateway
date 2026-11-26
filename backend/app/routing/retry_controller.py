@@ -41,6 +41,7 @@ class RetryController:
         if quota_group_id is not None and classification.scope in (
             QuotaScope.PROJECT,
             QuotaScope.ORGANIZATION,
+            QuotaScope.PROVIDER,
         ):
             return False
         return True
