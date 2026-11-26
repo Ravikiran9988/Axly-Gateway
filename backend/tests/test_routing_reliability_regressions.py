@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 
 import httpx
-import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
