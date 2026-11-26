@@ -23,7 +23,7 @@ describe('Authentication UI States', () => {
     );
 
     expect(screen.getByText('First-Run System Setup')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('admin@yourdomain.local')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('admin@axly.dev')).toBeInTheDocument();
     expect(screen.getByText('Initialize Gateway')).toBeInTheDocument();
   });
 
@@ -41,7 +41,7 @@ describe('Authentication UI States', () => {
     );
 
     expect(screen.getByText('Administrator Login')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('admin@yourdomain.local')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('admin@axly.dev')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sign In/i })).toBeInTheDocument();
   });
 });

@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-26T21:52:00Z",
+  "title": "Design System: AXLY Gateway",
+  "extensions": {
+    "colorMeta": {
+      "swiss-signal-red": {
+        "role": "primary",
+        "displayName": "Swiss Signal Red",
+        "canonical": "hsl(0 76% 52%)",
+        "tonalRamp": ["#2d0707", "#530d0d", "#801515", "#af1e1e", "#e22828", "#ec5555", "#f48a8a", "#fbd0d0"]
+      },
+      "swiss-signal-red-light": {
+        "role": "primary",
+        "displayName": "Swiss Signal Red (Light)",
+        "canonical": "hsl(0 76% 45%)",
+        "tonalRamp": ["#270606", "#4b0b0b", "#751212", "#a01717", "#ca1c1c", "#de4949", "#eb8282", "#f9cccc"]
+      },
+      "route-cobalt": {
+        "role": "secondary",
+        "displayName": "Route Cobalt",
+        "canonical": "hsl(199 89% 60%)",
+        "tonalRamp": ["#062231", "#0c3d57", "#145b81", "#207db0", "#3ebaf4", "#6bcaf7", "#9edcf9", "#daf2fe"]
+      },
+      "route-cobalt-light": {
+        "role": "secondary",
+        "displayName": "Route Cobalt (Light)",
+        "canonical": "hsl(200 94% 39%)",
+        "tonalRamp": ["#031b28", "#04344c", "#055075", "#066c9f", "#0683c1", "#33a4dc", "#7cc5eb", "#cfeaf9"]
+      },
+      "charcoal-ground": {
+        "role": "neutral",
+        "displayName": "Charcoal Ground",
+        "canonical": "hsl(220 17% 7%)",
+        "tonalRamp": ["#0a0b0e", "#0f1115", "#191c23", "#262b36", "#394151", "#5b657b", "#8f98ab", "#d7dbe3"]
+      },
+      "gunmetal-rail": {
+        "role": "neutral",
+        "displayName": "Gunmetal Rail",
+        "canonical": "hsl(222 18% 10%)",
+        "tonalRamp": ["#0b0d11", "#15181e", "#1f242e", "#2d3442", "#434c60", "#68738b", "#9aa3b6", "#dadee7"]
+      },
+      "slate-panel": {
+        "role": "neutral",
+        "displayName": "Slate Panel",
+        "canonical": "hsl(220 19% 9%)",
+        "tonalRamp": ["#0b0c10", "#13151b", "#1c2029", "#292f3d", "#3d465b", "#616c86", "#959fb4", "#d8dce6"]
+      },
+      "surface-subtle": {
+        "role": "neutral",
+        "displayName": "Subtle Surface",
+        "canonical": "hsl(220 18% 11%)",
+        "tonalRamp": ["#0e1015", "#171a21", "#222732", "#313847", "#485268", "#6d7790", "#a0a8ba", "#dcdfe7"]
+      },
+      "station-paper": {
+        "role": "neutral",
+        "displayName": "Station Paper",
+        "canonical": "hsl(90 9% 96%)",
+        "tonalRamp": ["#1f221d", "#393e34", "#586051", "#7b8473", "#a2ab9b", "#c5ccc0", "#e3e6e0", "#f5f6f4"]
+      },
+      "station-rail": {
+        "role": "neutral",
+        "displayName": "Station Rail",
+        "canonical": "hsl(90 8% 91%)",
+        "tonalRamp": ["#1b1e19", "#333830", "#4f564a", "#707969", "#97a090", "#bac1b5", "#d8dcd4", "#e8eae6"]
+      },
+      "off-white-ink": {
+        "role": "neutral",
+        "displayName": "Off-White Ink",
+        "canonical": "hsl(220 24% 94%)",
+        "tonalRamp": ["#191c24", "#2e3543", "#49546b", "#6b7791", "#939eb4", "#bac2d1", "#dce0e9", "#eceef3"]
+      },
+      "muted-steel": {
+        "role": "neutral",
+        "displayName": "Muted Steel",
+        "canonical": "hsl(220 14% 62%)",
+        "tonalRamp": ["#181b20", "#2f343f", "#4c5464", "#6d778c", "#919aac", "#adb4c2", "#cbd0d9", "#eaecf0"]
+      },
+      "hairline-rule": {
+        "role": "neutral",
+        "displayName": "Hairline Rule",
+        "canonical": "hsl(220 17% 19%)",
+        "tonalRamp": ["#111419", "#1d222b", "#282e39", "#3d4656", "#58647a", "#7e899d", "#aeb5c3", "#e2e5ea"]
+      },
+      "light-rule": {
+        "role": "neutral",
+        "displayName": "Light Rule",
+        "canonical": "hsl(90 7% 82%)",
+        "tonalRamp": ["#1c1e1a", "#353932", "#51574d", "#727a6d", "#99a094", "#b9bfb4", "#d1d4ce", "#eff0ed"]
+      },
+      "architectural-rule": {
+        "role": "neutral",
+        "displayName": "Architectural Rule",
+        "canonical": "hsl(220 20% 85%)",
+        "tonalRamp": ["#191c22", "#313744", "#4d5669", "#6f7a92", "#97a1b4", "#b8bfd0", "#d1d6e0", "#eef0f4"]
+      },
+      "status-healthy": {
+        "role": "semantic",
+        "displayName": "Healthy Emerald",
+        "canonical": "hsl(142 71% 45%)",
+        "tonalRamp": ["#072914", "#0d4c24", "#147538", "#1ba04c", "#21c45d", "#4dd87f", "#88e6aa", "#d3f7df"]
+      },
+      "status-cooldown": {
+        "role": "semantic",
+        "displayName": "Cooldown Amber",
+        "canonical": "hsl(38 92% 50%)",
+        "tonalRamp": ["#2d1d02", "#543603", "#835405", "#b77607", "#f59f0a", "#f8b848", "#fbd288", "#fef0d2"]
+      },
+      "status-tripped": {
+        "role": "semantic",
+        "displayName": "Tripped Crimson",
+        "canonical": "hsl(350 89% 60%)",
+        "tonalRamp": ["#2f070e", "#580d1a", "#8a1629", "#be203b", "#f43e5c", "#f76d84", "#fa9fad", "#fddce2"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Top-of-page operational view titles inside PageHeader." },
+      "headline": { "displayName": "Headline", "purpose": "Card headings, dialog titles, and empty state headers." },
+      "title": { "displayName": "Title", "purpose": "ChartPanel and data ledger section titles." },
+      "body": { "displayName": "Body", "purpose": "Operational prose, form descriptions, and documentation text." },
+      "label": { "displayName": "Mono Label", "purpose": "Uppercase section dividers, KPI tags, table heads, and code identifiers." }
+    },
+    "shadows": [
+      { "name": "resting-flat", "value": "none", "purpose": "Static cards, tables, and timetable strips use hairline borders without shadow." },
+      { "name": "popover-md", "value": "0 4px 6px -1px rgba(0, 0, 0, 0.25), 0 2px 4px -2px rgba(0, 0, 0, 0.2)", "purpose": "Chart tooltips and floating popovers." },
+      { "name": "dialog-xl", "value": "0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3)", "purpose": "Modal dialogs over dark scrim." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Crisp color and border transitions on buttons, links, switches, and table rows." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "2xl", "value": "1440px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Swiss signal-red primary creation or inference execution CTA.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Open Playground</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 4px; border: 1px solid #e22828; background: #e22828; color: #ffffff; font-family: 'Public Sans', system-ui, sans-serif; font-size: 12px; font-weight: 600; letter-spacing: -0.01em; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background: rgba(226, 40, 40, 0.9); } .ds-btn-primary:focus-visible { outline: 2px solid #3ebaf4; outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Action Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary utilitarian control action anchored by hairline border.",
+      "html": "<button class=\"ds-btn-outline\" type=\"button\">Export CSV</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 4px; border: 1px solid #282e39; background: #13151b; color: #eceef3; font-family: 'Public Sans', system-ui, sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-outline:hover { background: #262b36; } .ds-btn-outline:focus-visible { outline: 2px solid #3ebaf4; outline-offset: 2px; }"
+    },
+    {
+      "name": "Control Input",
+      "kind": "input",
+      "refersTo": "input-control",
+      "description": "Standardized 36px recessed dark text control with cobalt focus ring.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"admin@axly.dev\" />",
+      "css": ".ds-input { width: 100%; max-width: 280px; height: 36px; padding: 6px 12px; border-radius: 4px; border: 1px solid #303746; background: #0f1115; color: #eceef3; font-family: 'Public Sans', system-ui, sans-serif; font-size: 12px; caret-color: #e22828; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-input::placeholder { color: #919aac; } .ds-input:focus-visible { outline: 2px solid #3ebaf4; outline-offset: 1px; border-color: #3ebaf4; }"
+    },
+    {
+      "name": "Timetable KPI Cell",
+      "kind": "custom",
+      "refersTo": "timetable-cell",
+      "description": "Rule-divided tabular metric slot displaying SLO, requests, tokens, or RTT.",
+      "html": "<div class=\"ds-timetable-cell\"><div class=\"ds-timetable-head\"><span>SUCCESS RATE</span><span>SLO</span></div><div class=\"ds-timetable-val\">99.8%</div><div class=\"ds-timetable-sub\">2 failover recoveries</div></div>",
+      "css": ".ds-timetable-cell { min-width: 200px; padding: 14px 20px; border: 1px solid #282e39; border-radius: 4px; background: #13151b; color: #eceef3; } .ds-timetable-head { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.05em; color: #919aac; } .ds-timetable-val { margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: #21c45d; } .ds-timetable-sub { margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #919aac; }"
+    },
+    {
+      "name": "Rail Navigation Link",
+      "kind": "nav",
+      "refersTo": "nav-rail-item",
+      "description": "Active Swiss sidebar route link with crisp 1px containment and red indicator pip.",
+      "html": "<a class=\"ds-nav-item\" href=\"#\"><span class=\"ds-nav-left\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#e22828\" stroke-width=\"2\"><rect width=\"7\" height=\"9\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"14\" y=\"3\" rx=\"1\"/><rect width=\"7\" height=\"9\" x=\"14\" y=\"12\" rx=\"1\"/><rect width=\"7\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"/></svg><span>Dashboard</span></span><span class=\"ds-nav-pip\"></span></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; justify-content: space-between; width: 220px; padding: 8px 10px; border-radius: 4px; border: 1px solid #282e39; background: #13151b; color: #eceef3; font-family: 'Public Sans', system-ui, sans-serif; font-size: 12px; font-weight: 600; text-decoration: none; transition: background-color 150ms; } .ds-nav-left { display: flex; align-items: center; gap: 10px; } .ds-nav-pip { width: 6px; height: 6px; border-radius: 2px; background: #e22828; } .ds-nav-item:hover { background: #1c2029; } .ds-nav-item:focus-visible { outline: 2px solid #3ebaf4; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Indicator Badge",
+      "kind": "chip",
+      "refersTo": "badge-status",
+      "description": "Semantic monospace status pill with leading circular indicator.",
+      "html": "<span class=\"ds-badge-ok\"><span class=\"ds-badge-dot\"></span>HEALTHY</span>",
+      "css": ".ds-badge-ok { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 2px; border: 1px solid rgba(33,196,93,0.3); background: rgba(33,196,93,0.12); color: #21c45d; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; } .ds-badge-dot { width: 6px; height: 6px; border-radius: 9999px; background: #21c45d; margin-right: 6px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Swiss Rail Timetable",
+    "overview": "Every LLM completion request traverses AXLY Gateway like an express train switching tracks across deterministic schedules: priority aliases, failover hops, cooldown timers, and circuit-breaker gates lock onto rule-divided grids rather than decorative cloud dashboards. The visual system draws from Swiss railway control rooms and modernist grid typography—calm, engineered, flat-by-default, and readable under sustained operational load.\n\nThe interface rejects generic AI SaaS aesthetics—no neon gradient backdrops, glassmorphic cards, hero metric bloat, or decorative sparklines. Dark theme (charcoal-ground) loads by default to suit engineering control stations, paired seamlessly with a calibrated station-paper light mode (station-paper) toggled cleanly via Ctrl+T, topbar switch, or Settings.",
+    "keyCharacteristics": [
+      "Rule-divided tabular schedules (1px structural hairlines and 2px architectural section rules) replacing floating card mosaics.",
+      "Crisp 2px–4px geometric radii with restrained Swiss signal red strictly reserved for brand marks, primary CTAs, and active track markers.",
+      "Self-hosted Public Sans UI sans-serif paired strictly with JetBrains Mono in tabular-nums for telemetry, endpoints, keys, and latencies.",
+      "True backend telemetry across every chart, probe pill, and table—never synthetic placeholders or unbacked limits."
+    ],
+    "rules": [
+      {
+        "name": "The Ten-Percent Signal Rule",
+        "body": "swiss-signal-red appears only on primary actions, active route markers, and the brand mark so genuine alerts and primary CTAs command attention without chromatic noise.",
+        "section": "colors"
+      },
+      {
+        "name": "The Honest Ink Rule",
+        "body": "Status colors never decorate neutral UI containers; emerald, amber, and crimson are strictly bound to telemetry and backend state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Data-Only Monospace Rule",
+        "body": "Reserve JetBrains Mono strictly for metrics (tabular-nums), timestamps, latencies, route tracks, API keys, endpoints, and table headers—never set body paragraphs in monospace as a \"technical\" costume.",
+        "section": "typography"
+      },
+      {
+        "name": "The Self-Contained Heading Rule",
+        "body": "Headings open pages and cards directly without decorative kickers or eyebrows above them.",
+        "section": "typography"
+      },
+      {
+        "name": "The Hairline Separation Rule",
+        "body": "Hierarchy comes from surface tone steps, 1px hairlines, and 2px architectural rules—never stack soft box shadows under static dashboard panels.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do enforce tabular-nums (font-variant-numeric: tabular-nums) on every latency, RPM, token count, timestamp, and USD estimate so columns stay vertically aligned during live polling.",
+      "Do keep dark mode (html.dark) as the initial default while calibrating every light-mode counterpart (--border, --rule-strong, --accent-route, --status-*) for >=4.5:1 AA contrast.",
+      "Do separate sibling sections cleanly using 2px rule-strong borders on page/section anchors and hairline 1px divides inside data strips and tables.",
+      "Do keep native browser <select> caret rendering single and platform-consistent via color-scheme rather than overlaying duplicate chevron icons."
+    ],
+    "donts": [
+      "Don't place kickers or eyebrows above headings (PageHeader, cards, dialogs, or login headers).",
+      "Don't add gradient text, neon glows, decorative glass blur, hard offset block shadows, animate-bounce loaders, or nested cards inside cards unnecessarily.",
+      "Don't invent metrics or unbacked configuration inputs (never add client-key TPM limits where the backend stores only RPM and expiration, and never hardcode static gateway readiness).",
+      "Don't leave raw markdown backticks in React copy; wrap technical paths and flags in styled <code> elements."
+    ]
+  }
+}
