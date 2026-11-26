@@ -1,3 +1,4 @@
+import os
 import random
 from typing import Dict
 from app.routing.schemas import ErrorCategory
@@ -36,6 +37,18 @@ class CooldownPolicy:
     DEFAULT_JITTER_RATIO: float = 0.2  # +/- 20% jitter
 
     @classmethod
+    def _env_float(cls, name: str, default: float, minimum: float, maximum: float) -> float:
+        """Read a bounded numeric override without making application settings a hard dependency."""
+        raw = os.getenv(f"AXLY_COOLDOWN_{name}")
+        if raw is None:
+            return default
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return default
+        return min(maximum, max(minimum, value))
+
+    @classmethod
     def calculate_cooldown(
         cls,
         category: ErrorCategory,
@@ -43,28 +56,51 @@ class CooldownPolicy:
         explicit_retry_after: float = None,
     ) -> float:
         """
-        Calculates cooldown duration using Retry-After if provided,
-        or exponential backoff with bounded random jitter.
+        Calculates persisted cooldown using exponential backoff and bounded jitter.
+
+        Optional environment overrides:
+          AXLY_COOLDOWN_<CATEGORY>_BASE_SECONDS
+          AXLY_COOLDOWN_<CATEGORY>_MAX_SECONDS
+          AXLY_COOLDOWN_<CATEGORY>_BACKOFF_FACTOR
+          AXLY_COOLDOWN_JITTER_RATIO
+
+        Retry-After is authoritative and is returned without jitter or truncation.
         """
-        if explicit_retry_after is not None and explicit_retry_after > 0:
-            # Respect reliable upstream Retry-After plus a slight jitter to prevent thundering herd
-            jitter = random.uniform(0.0, 1.0)
-            return explicit_retry_after + jitter
+        if explicit_retry_after is not None:
+            try:
+                # Do not retry earlier than the upstream's requested delay.
+                return max(0.0, float(explicit_retry_after))
+            except (TypeError, ValueError):
+                pass
 
-        base = cls.BASE_DURATIONS.get(category, 20.0)
-        factor = cls.BACKOFF_FACTORS.get(category, 2.0)
-        max_duration = cls.MAX_COOLDOWN_SECONDS.get(category, 300.0)
+        category_name = category.name
+        base = cls._env_float(
+            f"{category_name}_BASE_SECONDS",
+            cls.BASE_DURATIONS.get(category, 20.0),
+            0.1,
+            86400.0,
+        )
+        factor = cls._env_float(
+            f"{category_name}_BACKOFF_FACTOR",
+            cls.BACKOFF_FACTORS.get(category, 2.0),
+            1.0,
+            10.0,
+        )
+        max_duration = cls._env_float(
+            f"{category_name}_MAX_SECONDS",
+            cls.MAX_COOLDOWN_SECONDS.get(category, 300.0),
+            0.1,
+            604800.0,
+        )
+        jitter_ratio = cls._env_float(
+            "JITTER_RATIO", cls.DEFAULT_JITTER_RATIO, 0.0, 1.0
+        )
 
-        # Exponential backoff based on consecutive failures: base * (factor ^ count)
-        duration = base * (factor ** min(consecutive_cooldowns, 6))
-        duration = min(duration, max_duration)
-
-        # Apply random jitter (+/- 20%)
-        low = duration * (1.0 - cls.DEFAULT_JITTER_RATIO)
-        high = duration * (1.0 + cls.DEFAULT_JITTER_RATIO)
-        jittered = random.uniform(low, high)
-
-        return round(max(1.0, jittered), 2)
+        exponent = min(max(0, int(consecutive_cooldowns)), 16)
+        duration = min(base * (factor ** exponent), max_duration)
+        low = duration * (1.0 - jitter_ratio)
+        high = duration * (1.0 + jitter_ratio)
+        return round(max(0.1, random.uniform(low, high)), 2)
 
 
 class CircuitBreakerPolicy:
