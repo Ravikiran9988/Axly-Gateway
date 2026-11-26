@@ -50,10 +50,11 @@ class CredentialSelector:
             .where(
                 ProviderCredential.provider_id == provider_id,
             )
-            # Keep priority deterministic while distributing equal-priority requests
-            # across keys in the database (works across multiple gateway workers).
+            # Prefer the least-used key within each configured priority tier. Randomize
+            # ties to spread concurrent requests across workers and avoid oldest-key bias.
             .order_by(
                 ProviderCredential.priority.asc(),
+                ProviderCredential.requests_count.asc(),
                 func.random(),
             )
         )
