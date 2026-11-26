@@ -1,7 +1,7 @@
 import logging
 import uuid
 from typing import Dict, List, Optional, Set, Tuple
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -50,9 +50,11 @@ class CredentialSelector:
             .where(
                 ProviderCredential.provider_id == provider_id,
             )
+            # Keep priority deterministic while distributing equal-priority requests
+            # across keys in the database (works across multiple gateway workers).
             .order_by(
                 ProviderCredential.priority.asc(),
-                ProviderCredential.created_at.asc(),
+                func.random(),
             )
         )
         credentials = (await db.execute(stmt)).scalars().all()
