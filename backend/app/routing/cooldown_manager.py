@@ -147,6 +147,8 @@ class CooldownManager:
             health.status = HealthState.RECOVERING.value
             health.cooldown_until = None
             await db.flush()
+            # Do not retain the health-row lock/transaction while the next upstream call runs.
+            await db.commit()
             logger.info(f"Credential {credential.id} cooldown expired -> transitioned to RECOVERING")
             return True, "Cooldown expired, currently recovering"
 
