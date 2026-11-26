@@ -57,6 +57,8 @@ class CircuitBreakerManager:
                 .on_conflict_do_nothing(index_elements=["scope_type", "scope_id"])
             )
             await db.execute(insert_stmt)
+            # Publish a newly created row before another request attempts to inspect it.
+            await db.commit()
             cb = (await db.execute(stmt)).scalar_one()
         return cb
 
