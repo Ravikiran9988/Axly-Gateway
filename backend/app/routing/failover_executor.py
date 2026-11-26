@@ -1,5 +1,6 @@
 import logging
 import time
+from collections import deque
 import uuid
 from typing import Any, Dict, List, Optional, Set, Tuple
 from fastapi import Request
@@ -54,7 +55,6 @@ class FailoverExecutor:
         start_mono = time.monotonic()
         start_time = utc_now()
         attempt_records: List[AttemptRecord] = []
-        attempted_pairs: Set[str] = set()
         attempted_credential_ids: Set[uuid.UUID] = set()
         attempt_number = 0
 
@@ -67,10 +67,12 @@ class FailoverExecutor:
 
         last_exception: Optional[Exception] = None
 
-        for cand in ordered_candidates:
+        # Re-queue a candidate after credential-scoped errors so sibling keys are tried first.
+        # Each credential is attempted once and the overall attempt count remains bounded.
+        queue = deque(ordered_candidates)
+        while queue:
+            cand = queue.popleft()
             pair_key = f"{cand.provider_name}:{cand.model_identifier}".lower()
-            if pair_key in attempted_pairs:
-                continue
 
             # 1. Circuit breaker check on provider
             cb_allowed, cb_reason = await CircuitBreakerManager.can_execute(
@@ -114,7 +116,6 @@ class FailoverExecutor:
 
             # 3. Candidate & Credential ready for attempt!
             attempt_number += 1
-            attempted_pairs.add(pair_key)
             attempted_credential_ids.add(credential.credential_id)
 
             attempt_start_mono = time.monotonic()
@@ -133,64 +134,6 @@ class FailoverExecutor:
 
             try:
                 response = await adapter.complete_chat(upstream_request, credential.decrypted_api_key)
-                attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
-
-                # Upstream success! Update circuit breaker and health tracker
-                await CircuitBreakerManager.record_success(db, "provider", cand.provider_name)
-                tokens_count = response.usage.total_tokens if response.usage else 0
-                await HealthTracker.record_attempt_result(
-                    db=db,
-                    credential_id=credential.credential_id,
-                    provider_name=cand.provider_name,
-                    quota_group_id=credential.quota_group_id,
-                    success=True,
-                    latency_ms=attempt_latency,
-                    tokens_count=tokens_count,
-                )
-
-                attempt_records.append(
-                    AttemptRecord(
-                        attempt_number=attempt_number,
-                        provider_name=cand.provider_name,
-                        model_identifier=cand.model_identifier,
-                        credential_id=credential.credential_id,
-                        credential_label=credential.label,
-                        started_at=attempt_start_dt,
-                        ended_at=utc_now(),
-                        latency_ms=round(attempt_latency, 2),
-                        result="success",
-                        status_code=200,
-                        retry_decision="none",
-                        circuit_breaker_state="CLOSED",
-                    )
-                )
-
-                total_latency = (time.monotonic() - start_mono) * 1000.0
-                decision = RoutingDecision(
-                    request_id=request_id,
-                    requested_model_or_alias=resolved.requested_name,
-                    resolved_profile=resolved.profile_name,
-                    routing_strategy=resolved.strategy,
-                    selected_provider=cand.provider_name,
-                    selected_provider_id=cand.provider_id,
-                    selected_model=cand.model_identifier,
-                    selected_credential_id=credential.credential_id,
-                    selected_credential_label=credential.label,
-                    attempts=attempt_records,
-                    total_latency_ms=round(total_latency, 2),
-                    success=True,
-                    final_status_code=200,
-                )
-
-                # Persist routing history
-                await cls._persist_history(db, decision)
-
-                # Format response model field to preserve requested model/alias if needed
-                if resolved.is_alias:
-                    response.model = resolved.requested_name
-
-                return response, decision
-
             except Exception as exc:
                 last_exception = exc
                 attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
@@ -200,19 +143,29 @@ class FailoverExecutor:
                     exc, provider_name=cand.provider_name
                 )
 
-                # 5. Record failure in Circuit Breaker & Health Tracker (updates cooldowns)
-                await CircuitBreakerManager.record_failure(
-                    db, "provider", cand.provider_name, classification.reason
-                )
-                cooldown_sec = await HealthTracker.record_attempt_result(
-                    db=db,
-                    credential_id=credential.credential_id,
-                    provider_name=cand.provider_name,
-                    quota_group_id=credential.quota_group_id,
-                    success=False,
-                    latency_ms=attempt_latency,
-                    classification=classification,
-                )
+                # Failure telemetry is isolated from the upstream exception and committed before fallback.
+                cooldown_sec = None
+                try:
+                    await CircuitBreakerManager.record_failure(
+                        db,
+                        "provider",
+                        cand.provider_name,
+                        classification.reason,
+                        classification=classification,
+                    )
+                    cooldown_sec = await HealthTracker.record_attempt_result(
+                        db=db,
+                        credential_id=credential.credential_id,
+                        provider_name=cand.provider_name,
+                        quota_group_id=credential.quota_group_id,
+                        success=False,
+                        latency_ms=attempt_latency,
+                        classification=classification,
+                    )
+                    await db.commit()
+                except Exception:
+                    logger.exception("[req:%s] Failure bookkeeping failed for %s", request_id, pair_key)
+                    await cls._safe_rollback(db)
 
                 # 6. Check client disconnection
                 client_disconnected = False
@@ -273,10 +226,83 @@ class FailoverExecutor:
                     await cls._persist_history(db, decision)
                     raise
 
+                if RetryController.should_try_next_credential(
+                    classification, credential.quota_group_id
+                ):
+                    queue.appendleft(cand)
+
                 # Controlled bounded delay before next candidate
                 await RetryController.apply_bounded_backoff(
                     attempt_number, retry_after=classification.retry_after_seconds
                 )
+
+            else:
+                attempt_latency = (time.monotonic() - attempt_start_mono) * 1000.0
+
+                # The upstream response is already successful. Bookkeeping must never replay it.
+                try:
+                    await CircuitBreakerManager.record_success(db, "provider", cand.provider_name)
+                    tokens_count = response.usage.total_tokens if response.usage else 0
+                    await HealthTracker.record_attempt_result(
+                        db=db,
+                        credential_id=credential.credential_id,
+                        provider_name=cand.provider_name,
+                        quota_group_id=credential.quota_group_id,
+                        success=True,
+                        latency_ms=attempt_latency,
+                        tokens_count=tokens_count,
+                    )
+                    await db.commit()
+                except Exception:
+                    logger.exception(
+                        "[req:%s] Success bookkeeping failed for %s; returning upstream response",
+                        request_id,
+                        pair_key,
+                    )
+                    await cls._safe_rollback(db)
+
+                attempt_records.append(
+                    AttemptRecord(
+                        attempt_number=attempt_number,
+                        provider_name=cand.provider_name,
+                        model_identifier=cand.model_identifier,
+                        credential_id=credential.credential_id,
+                        credential_label=credential.label,
+                        started_at=attempt_start_dt,
+                        ended_at=utc_now(),
+                        latency_ms=round(attempt_latency, 2),
+                        result="success",
+                        status_code=200,
+                        retry_decision="none",
+                        circuit_breaker_state="CLOSED",
+                    )
+                )
+
+                total_latency = (time.monotonic() - start_mono) * 1000.0
+                decision = RoutingDecision(
+                    request_id=request_id,
+                    requested_model_or_alias=resolved.requested_name,
+                    resolved_profile=resolved.profile_name,
+                    routing_strategy=resolved.strategy,
+                    selected_provider=cand.provider_name,
+                    selected_provider_id=cand.provider_id,
+                    selected_model=cand.model_identifier,
+                    selected_credential_id=credential.credential_id,
+                    selected_credential_label=credential.label,
+                    attempts=attempt_records,
+                    total_latency_ms=round(total_latency, 2),
+                    success=True,
+                    final_status_code=200,
+                )
+
+                # Persist routing history
+                await cls._persist_history(db, decision)
+
+                # Format response model field to preserve requested model/alias if needed
+                if resolved.is_alias:
+                    response.model = resolved.requested_name
+
+                return response, decision
 
         # All candidates exhausted or none eligible
         total_latency = (time.monotonic() - start_mono) * 1000.0
@@ -350,3 +376,11 @@ class FailoverExecutor:
             await db.commit()
         except Exception as exc:
             logger.error(f"Failed to persist routing history for request {decision.request_id}: {exc}")
+            await cls._safe_rollback(db)
+
+    @staticmethod
+    async def _safe_rollback(db: AsyncSession) -> None:
+        try:
+            await db.rollback()
+        except Exception:
+            logger.exception("Rollback failed while recovering routing database session")

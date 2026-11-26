@@ -2,9 +2,10 @@ import asyncio
 import logging
 import time
 from typing import Optional, Tuple
+import uuid
 
 from app.routing.policies import RetryPolicy
-from app.routing.schemas import ErrorClassification
+from app.routing.schemas import ErrorCategory, ErrorClassification, QuotaScope
 
 logger = logging.getLogger("axly.routing.retry_controller")
 
@@ -15,6 +16,35 @@ class RetryController:
     evaluating deadline boundaries, client connectivity, error permanence,
     and calculating bounded backoff delays.
     """
+
+    FAILOVER_CATEGORIES = frozenset({
+        ErrorCategory.AUTHENTICATION,
+        ErrorCategory.PERMISSION,
+        ErrorCategory.MODEL_NOT_FOUND,
+    })
+    CREDENTIAL_SCOPED_CATEGORIES = frozenset({
+        ErrorCategory.AUTHENTICATION,
+        ErrorCategory.PERMISSION,
+        ErrorCategory.RATE_LIMIT,
+        ErrorCategory.QUOTA_EXHAUSTED,
+    })
+
+    @classmethod
+    def should_try_next_credential(
+        cls,
+        classification: ErrorClassification,
+        quota_group_id: Optional[uuid.UUID] = None,
+    ) -> bool:
+        """Return true for key-scoped failures when another independent key may work."""
+        if classification.category not in cls.CREDENTIAL_SCOPED_CATEGORIES:
+            return False
+        if quota_group_id is not None and classification.scope in (
+            QuotaScope.PROJECT,
+            QuotaScope.ORGANIZATION,
+            QuotaScope.PROVIDER,
+        ):
+            return False
+        return True
 
     @classmethod
     def should_retry(
@@ -33,8 +63,14 @@ class RetryController:
         if client_disconnected:
             return False, "Aborted: client disconnected"
 
-        if not classification.is_retryable:
-            return False, f"Aborted: permanent unretryable failure ({classification.category.value}: {classification.reason})"
+        if (
+            not classification.is_retryable
+            and classification.category not in cls.FAILOVER_CATEGORIES
+        ):
+            return False, (
+                f"Aborted: permanent unretryable failure "
+                f"({classification.category.value}: {classification.reason})"
+            )
 
         if attempt >= max_attempts:
             return False, f"Aborted: maximum attempts ({max_attempts}) reached"

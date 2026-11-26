@@ -9,6 +9,7 @@ from app.db.base import utc_now
 from app.models.credential import ProviderCredential
 from app.models.health import CredentialHealth
 from app.models.quota import QuotaGroup
+from app.routing.policies import CooldownPolicy
 from app.routing.schemas import (
     ErrorCategory,
     ErrorClassification,
@@ -48,26 +49,44 @@ class CooldownManager:
             return 0.0
 
         now = utc_now()
-        duration_seconds = classification.cooldown_seconds
-        cooldown_until = now + timedelta(seconds=duration_seconds)
         reason = custom_reason or classification.reason
+        duration_seconds = 0.0
+        cooldown_until = None
 
-        # Determine target state
+        # Determine target state. Only transient provider/credential failures create cooldowns.
         if classification.category == ErrorCategory.AUTHENTICATION:
-            # Permanent credential disable until fixed/re-tested
             new_status = HealthState.AUTHENTICATION_FAILURE.value
-            duration_seconds = 0.0
-            cooldown_until = None
         elif classification.category == ErrorCategory.PERMISSION:
             new_status = HealthState.PERMISSION_FAILURE.value
-            duration_seconds = 0.0
-            cooldown_until = None
-        elif classification.category in (ErrorCategory.RATE_LIMIT, ErrorCategory.QUOTA_EXHAUSTED):
+        elif classification.category in (
+            ErrorCategory.RATE_LIMIT,
+            ErrorCategory.QUOTA_EXHAUSTED,
+        ):
             new_status = HealthState.RATE_LIMITED.value
             health.consecutive_cooldowns += 1
-        else:
+            duration_seconds = CooldownPolicy.calculate_cooldown(
+                classification.category,
+                consecutive_cooldowns=health.consecutive_cooldowns - 1,
+                explicit_retry_after=classification.retry_after_seconds,
+            )
+            cooldown_until = now + timedelta(seconds=duration_seconds)
+        elif classification.category in (
+            ErrorCategory.SERVICE_UNAVAILABLE,
+            ErrorCategory.TIMEOUT,
+            ErrorCategory.NETWORK_ERROR,
+            ErrorCategory.UNKNOWN,
+        ):
             new_status = HealthState.TEMPORARILY_UNAVAILABLE.value
             health.consecutive_cooldowns += 1
+            duration_seconds = CooldownPolicy.calculate_cooldown(
+                classification.category,
+                consecutive_cooldowns=health.consecutive_cooldowns - 1,
+                explicit_retry_after=classification.retry_after_seconds,
+            )
+            cooldown_until = now + timedelta(seconds=duration_seconds)
+        else:
+            # A malformed client request or unsupported model is not a credential outage.
+            return 0.0
 
         health.status = new_status
         health.cooldown_until = cooldown_until
@@ -128,6 +147,8 @@ class CooldownManager:
             health.status = HealthState.RECOVERING.value
             health.cooldown_until = None
             await db.flush()
+            # Do not retain the health-row lock/transaction while the next upstream call runs.
+            await db.commit()
             logger.info(f"Credential {credential.id} cooldown expired -> transitioned to RECOVERING")
             return True, "Cooldown expired, currently recovering"
 

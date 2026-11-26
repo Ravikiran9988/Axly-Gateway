@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import utc_now
 from app.models.circuit_breaker import CircuitBreaker
 from app.routing.policies import CircuitBreakerPolicy
-from app.routing.schemas import CircuitBreakerStateEnum
+from app.routing.schemas import CircuitBreakerStateEnum, ErrorCategory, ErrorClassification
 
 logger = logging.getLogger("axly.routing.circuit_breaker")
 
@@ -33,6 +33,9 @@ class CircuitBreakerManager:
             CircuitBreaker.scope_type == scope_type,
             CircuitBreaker.scope_id == scope_id,
         )
+        # Always refresh the identity-map copy. The CLOSED fast path is intentionally
+        # lock-free, but it must not read stale breaker state from this session.
+        stmt = stmt.execution_options(populate_existing=True)
         if for_update:
             stmt = stmt.with_for_update()
 
@@ -56,6 +59,8 @@ class CircuitBreakerManager:
                 .on_conflict_do_nothing(index_elements=["scope_type", "scope_id"])
             )
             await db.execute(insert_stmt)
+            # Publish a newly created row before another request attempts to inspect it.
+            await db.commit()
             cb = (await db.execute(stmt)).scalar_one()
         return cb
 
@@ -67,19 +72,29 @@ class CircuitBreakerManager:
         scope_id: str,
     ) -> Tuple[bool, str]:
         """
-        Evaluates whether a request can proceed through the circuit breaker.
-        Transitions OPEN -> HALF_OPEN when recovery timeout has elapsed.
+        Check breaker eligibility without holding a row lock during the upstream call.
+
+        CLOSED is the common path and is a lock-free read. OPEN/HALF_OPEN are re-read
+        under a short lock; any state transition/probe reservation is committed before
+        returning to the caller.
         """
+        cb = await cls.get_or_create(db, scope_type, scope_id, for_update=False)
+        if cb.state == CircuitBreakerStateEnum.CLOSED.value:
+            # Release the read transaction/pooled connection before network I/O.
+            await db.commit()
+            return True, "Circuit breaker is CLOSED (normal operation)"
+
+        # Slow path: serialize only state transitions and half-open probe reservations.
         cb = await cls.get_or_create(db, scope_type, scope_id, for_update=True)
         now = utc_now()
 
         if cb.state == CircuitBreakerStateEnum.CLOSED.value:
-            return True, "Circuit breaker is CLOSED (normal operation)"
-
-        if cb.state == CircuitBreakerStateEnum.OPEN.value:
-            recovery_deadline = cb.last_state_change + timedelta(seconds=cb.recovery_timeout_seconds)
+            allowed, reason = True, "Circuit breaker is CLOSED (normal operation)"
+        elif cb.state == CircuitBreakerStateEnum.OPEN.value:
+            recovery_deadline = cb.last_state_change + timedelta(
+                seconds=cb.recovery_timeout_seconds
+            )
             if now >= recovery_deadline:
-                # Transition OPEN -> HALF_OPEN
                 old_state = cb.state
                 cb.state = CircuitBreakerStateEnum.HALF_OPEN.value
                 cb.current_half_open_probes = 1
@@ -91,22 +106,35 @@ class CircuitBreakerManager:
                     "timestamp": now.isoformat(),
                     "reason": "Recovery timeout elapsed; initiating trial probe",
                 })
-                cb.history = history[-50:]  # Keep latest 50 transitions
-                await db.flush()
-                logger.info(f"Circuit breaker [{scope_type}:{scope_id}] transitioned OPEN -> HALF_OPEN (probe allowed)")
-                return True, "Circuit breaker is HALF_OPEN (trial probe allowed)"
+                cb.history = history[-50:]
+                allowed, reason = True, "Circuit breaker is HALF_OPEN (trial probe allowed)"
+                logger.info(
+                    "Circuit breaker [%s:%s] transitioned OPEN -> HALF_OPEN (probe allowed)",
+                    scope_type,
+                    scope_id,
+                )
             else:
                 remaining = (recovery_deadline - now).total_seconds()
-                return False, f"Circuit breaker is OPEN ({remaining:.1f}s until recovery probe, reason: {cb.last_error_reason})"
-
-        if cb.state == CircuitBreakerStateEnum.HALF_OPEN.value:
+                allowed, reason = False, (
+                    f"Circuit breaker is OPEN ({remaining:.1f}s until recovery probe, "
+                    f"reason: {cb.last_error_reason})"
+                )
+        elif cb.state == CircuitBreakerStateEnum.HALF_OPEN.value:
             if cb.current_half_open_probes < cb.half_open_probes_allowed:
                 cb.current_half_open_probes += 1
-                await db.flush()
-                return True, "Circuit breaker is HALF_OPEN (additional trial probe permitted)"
-            return False, "Circuit breaker is HALF_OPEN (max concurrent trial probes already active)"
+                allowed, reason = True, (
+                    "Circuit breaker is HALF_OPEN (additional trial probe permitted)"
+                )
+            else:
+                allowed, reason = False, (
+                    "Circuit breaker is HALF_OPEN (max concurrent trial probes already active)"
+                )
+        else:
+            allowed, reason = True, "Unknown state (allowing request)"
 
-        return True, "Unknown state (allowing request)"
+        # Release the row lock before the caller performs upstream I/O.
+        await db.commit()
+        return allowed, reason
 
     @classmethod
     async def record_success(
@@ -149,12 +177,36 @@ class CircuitBreakerManager:
         scope_type: str,
         scope_id: str,
         reason: str,
+        classification: Optional[ErrorClassification] = None,
     ) -> None:
         """
-        Records an upstream failure.
-        If in HALF_OPEN, immediately trips back to OPEN.
-        If in CLOSED, increments current_failures; if threshold reached, trips to OPEN.
+        Records a genuine upstream availability failure.
+        Client errors, safety blocks, authentication/permission errors, rate limits,
+        quota exhaustion, and unsupported models do not open a provider-wide breaker.
         """
+        if classification is not None:
+            provider_failure_categories = {
+                ErrorCategory.TIMEOUT,
+                ErrorCategory.SERVICE_UNAVAILABLE,
+                ErrorCategory.NETWORK_ERROR,
+                ErrorCategory.UNKNOWN,
+            }
+            if (
+                classification.category not in provider_failure_categories
+                or (
+                    classification.category == ErrorCategory.UNKNOWN
+                    and classification.status_code < 500
+                )
+            ):
+                logger.debug(
+                    "Ignoring non-provider failure for circuit breaker [%s:%s] (%s, HTTP %s)",
+                    scope_type,
+                    scope_id,
+                    classification.category.value,
+                    classification.status_code,
+                )
+                return
+
         cb = await cls.get_or_create(db, scope_type, scope_id, for_update=True)
         now = utc_now()
         cb.last_failure_at = now

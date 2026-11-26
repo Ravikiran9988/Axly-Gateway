@@ -1,5 +1,7 @@
 import logging
 import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional
 import httpx
 
@@ -82,8 +84,7 @@ class ErrorClassifier:
 
         if isinstance(exc, PermissionError) or status_code == 403:
             # Check if this 403 is actually a quota restriction (e.g. Google Cloud quota exceeded on 403)
-            lower_msg = message.lower()
-            if any(k in lower_msg for k in ("quota", "resource_exhausted", "billing", "rate")):
+            if cls._has_explicit_quota_signal(message, details):
                 return cls._classify_quota_or_rate_limit(
                     message, details, retry_after_seconds, consecutive_cooldowns, status_code=403
                 )
@@ -109,12 +110,12 @@ class ErrorClassifier:
                 details=details,
             )
 
-        if isinstance(exc, InvalidRequestError) or status_code == 400:
+        if isinstance(exc, InvalidRequestError) or status_code in (400, 422):
             return ErrorClassification(
                 category=ErrorCategory.BAD_REQUEST,
                 is_retryable=False,
                 scope=QuotaScope.CREDENTIAL,
-                status_code=400,
+                status_code=status_code,
                 reason="Invalid request parameters rejected by provider",
                 confidence="certain",
                 details=details,
@@ -137,7 +138,9 @@ class ErrorClassifier:
             )
 
         if status_code in (408, 504) or isinstance(exc, UpstreamTimeoutError):
-            return cls._classify_timeout(message, consecutive_cooldowns, status_code)
+            return cls._classify_timeout(
+                message, consecutive_cooldowns, status_code, retry_after_seconds
+            )
 
         if isinstance(exc, UpstreamNetworkError):
             return cls._classify_network_error(message, consecutive_cooldowns)
@@ -175,6 +178,37 @@ class ErrorClassifier:
         )
 
     @classmethod
+    def _has_explicit_quota_signal(cls, message: str, details: Dict[str, Any]) -> bool:
+        """Recognize explicit quota/rate-limit codes and phrases, not incidental substrings."""
+        phrase_pattern = re.compile(
+            r"\b(rate[\s_-]+limit|quota[\s_-]+exceeded|insufficient[\s_-]+quota|"
+            r"resource[\s_-]+exhausted|daily[\s_-]+quota|billing[\s_-]+hard[\s_-]+limit)\b",
+            re.IGNORECASE,
+        )
+        if phrase_pattern.search(message or ""):
+            return True
+
+        accepted_codes = {
+            "rate_limit", "rate_limit_exceeded", "quota_exceeded",
+            "insufficient_quota", "resource_exhausted",
+            "daily_quota_exceeded", "billing_hard_limit_reached",
+        }
+
+        def inspect(value: Any, key: str = "") -> bool:
+            if isinstance(value, dict):
+                for child_key, child_value in value.items():
+                    if inspect(child_value, str(child_key).lower()):
+                        return True
+            elif isinstance(value, (list, tuple)):
+                return any(inspect(item, key) for item in value)
+            elif key in {"code", "type", "reason", "error_type", "status"}:
+                normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+                return normalized in accepted_codes
+            return False
+
+        return inspect(details or {})
+
+    @classmethod
     def _classify_quota_or_rate_limit(
         cls,
         message: str,
@@ -196,7 +230,10 @@ class ErrorClassifier:
                 "quota exceeded",
                 "project quota",
                 "daily limit",
+                "daily quota",
+                "daily_quota_exceeded",
                 "requests per day",
+                "billing_hard_limit_reached",
                 "billing",
                 "tier limit",
             )
@@ -236,14 +273,21 @@ class ErrorClassifier:
 
     @classmethod
     def _classify_timeout(
-        cls, message: str, consecutive_cooldowns: int, status_code: int = 504
+        cls,
+        message: str,
+        consecutive_cooldowns: int,
+        status_code: int = 504,
+        retry_after_seconds: Optional[float] = None,
     ) -> ErrorClassification:
-        cooldown = CooldownPolicy.calculate_cooldown(ErrorCategory.TIMEOUT, consecutive_cooldowns)
+        cooldown = CooldownPolicy.calculate_cooldown(
+            ErrorCategory.TIMEOUT, consecutive_cooldowns, retry_after_seconds
+        )
         return ErrorClassification(
             category=ErrorCategory.TIMEOUT,
             is_retryable=True,
             scope=QuotaScope.CREDENTIAL,
             status_code=status_code,
+            retry_after_seconds=retry_after_seconds,
             cooldown_seconds=cooldown,
             reason="Upstream request timed out",
             confidence="certain",
@@ -269,13 +313,19 @@ class ErrorClassifier:
         cls, headers: Dict[str, str], details: Dict[str, Any], message: str
     ) -> Optional[float]:
         """Extracts seconds from Retry-After header or structured error details."""
-        # 1. Check HTTP header
-        for k, v in headers.items():
+        # 1. Check HTTP header (delta-seconds or HTTP-date per RFC 9110).
+        for k, v in (headers or {}).items():
             if k.lower() == "retry-after":
                 try:
-                    return float(v.strip())
-                except ValueError:
-                    pass
+                    return max(0.0, float(str(v).strip()))
+                except (TypeError, ValueError):
+                    try:
+                        retry_at = parsedate_to_datetime(str(v))
+                        if retry_at.tzinfo is None:
+                            retry_at = retry_at.replace(tzinfo=timezone.utc)
+                        return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+                    except (TypeError, ValueError, OverflowError):
+                        pass
 
         # 2. Check details dict
         if "retry_after" in details:

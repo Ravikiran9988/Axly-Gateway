@@ -36,7 +36,7 @@ def test_cooldown_respects_retry_after():
     duration = CooldownPolicy.calculate_cooldown(
         ErrorCategory.RATE_LIMIT, consecutive_cooldowns=0, explicit_retry_after=50.0
     )
-    assert 50.0 <= duration <= 51.0
+    assert duration == 50.0
 
 
 @pytest.mark.asyncio
