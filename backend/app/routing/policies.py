@@ -100,7 +100,9 @@ class CooldownPolicy:
         duration = min(base * (factor ** exponent), max_duration)
         low = duration * (1.0 - jitter_ratio)
         high = duration * (1.0 + jitter_ratio)
-        return round(max(0.1, random.uniform(low, high)), 2)
+        jittered = random.uniform(low, high)
+        # The configured cap applies after jitter; Retry-After remains authoritative above.
+        return round(min(max_duration, max(0.1, jittered)), 2)
 
 
 class CircuitBreakerPolicy:
