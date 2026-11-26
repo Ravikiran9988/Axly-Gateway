@@ -1,3 +1,4 @@
+import asyncio
 import json
 import pytest
 from sqlalchemy import select
@@ -172,3 +173,66 @@ async def test_streaming_post_first_chunk_safe_termination(db_session: AsyncSess
     assert len(history) == 1
     assert history[0].result == "failure"
     assert history[0].error_category == "service_unavailable"
+
+@pytest.mark.asyncio
+async def test_stream_iterator_is_closed_when_client_cancels(db_session: AsyncSession):
+    """The upstream async generator is closed when the downstream client disconnects."""
+    enc = get_encryption_service()
+    provider = Provider(name="groq", display_name="Groq", is_enabled=True)
+    db_session.add(provider)
+    await db_session.flush()
+
+    model = Model(
+        provider_id=provider.id,
+        model_identifier="llama-3.1-8b-instant",
+        display_name="Llama",
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    credential = ProviderCredential(
+        provider_id=provider.id,
+        label="Groq stream cleanup key",
+        encrypted_api_key=enc.encrypt("stream-cleanup-secret"),
+        key_preview="cleanup_...",
+        priority=1,
+        is_active=True,
+    )
+    db_session.add(credential)
+    await db_session.flush()
+    db_session.add(CredentialHealth(credential_id=credential.id, status="healthy"))
+    await db_session.commit()
+
+    request = ChatCompletionRequest(
+        model="llama-3.1-8b-instant",
+        stream=True,
+        messages=[ChatCompletionMessage(role="user", content="Check stream cleanup")],
+    )
+    closed = []
+
+    async def tracked_stream(req, key):
+        try:
+            yield ChatCompletionChunk(
+                id="cleanup-chunk",
+                model="llama-3.1-8b-instant",
+                choices=[
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta=ChatCompletionChunkDelta(content="first"),
+                    )
+                ],
+            )
+            await asyncio.sleep(60)
+        finally:
+            closed.append(True)
+
+    with patch(
+        "app.providers.groq.adapter.GroqAdapter.stream_chat",
+        side_effect=tracked_stream,
+    ):
+        stream = RoutingEngine.stream_chat(db=db_session, request=request)
+        first = await stream.__anext__()
+        assert "first" in first
+        await stream.aclose()
+
+    assert closed == [True]
