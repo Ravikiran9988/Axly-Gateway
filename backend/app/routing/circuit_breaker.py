@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import utc_now
 from app.models.circuit_breaker import CircuitBreaker
 from app.routing.policies import CircuitBreakerPolicy
-from app.routing.schemas import CircuitBreakerStateEnum
+from app.routing.schemas import CircuitBreakerStateEnum, ErrorCategory, ErrorClassification
 
 logger = logging.getLogger("axly.routing.circuit_breaker")
 
@@ -149,12 +149,33 @@ class CircuitBreakerManager:
         scope_type: str,
         scope_id: str,
         reason: str,
+        classification: Optional[ErrorClassification] = None,
     ) -> None:
         """
-        Records an upstream failure.
-        If in HALF_OPEN, immediately trips back to OPEN.
-        If in CLOSED, increments current_failures; if threshold reached, trips to OPEN.
+        Records a genuine upstream availability failure.
+        Client errors, safety blocks, authentication/permission errors, rate limits,
+        quota exhaustion, and unsupported models do not open a provider-wide breaker.
         """
+        if classification is not None:
+            provider_failure_categories = {
+                ErrorCategory.TIMEOUT,
+                ErrorCategory.SERVICE_UNAVAILABLE,
+                ErrorCategory.NETWORK_ERROR,
+                ErrorCategory.UNKNOWN,
+            }
+            if (
+                classification.category not in provider_failure_categories
+                or classification.status_code < 500
+            ):
+                logger.debug(
+                    "Ignoring non-provider failure for circuit breaker [%s:%s] (%s, HTTP %s)",
+                    scope_type,
+                    scope_id,
+                    classification.category.value,
+                    classification.status_code,
+                )
+                return
+
         cb = await cls.get_or_create(db, scope_type, scope_id, for_update=True)
         now = utc_now()
         cb.last_failure_at = now
