@@ -195,13 +195,23 @@ async def execute_chat_completion(
         usage = response.usage
         prompt_tokens = usage.prompt_tokens if usage else 0
         completion_tokens = usage.completion_tokens if usage else 0
-        estimated_cost = await estimate_request_cost(
-            db,
-            decision.selected_provider_id,
-            decision.selected_model or request.model,
-            prompt_tokens,
-            completion_tokens,
-        )
+        try:
+            estimated_cost = await estimate_request_cost(
+                db,
+                decision.selected_provider_id,
+                decision.selected_model or request.model,
+                prompt_tokens,
+                completion_tokens,
+            )
+        except Exception:
+            # Cost estimation is informational; it must not turn an upstream success into HTTP 500.
+            logger.exception("Cost estimation failed [req_id:%s]", request_id)
+            estimated_cost = 0.0
+            try:
+                await db.rollback()
+            except Exception:
+                logger.exception("Database rollback failed after cost estimation [req_id:%s]", request_id)
+
         await log_request_record(
             request_id=request_id,
             gateway_key_id=gateway_key.id if gateway_key else None,
