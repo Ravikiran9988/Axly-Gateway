@@ -42,25 +42,41 @@ stateDiagram-v2
 
 Cooldown durations are calculated based on error severity and consecutive failure counts:
 
-### Base Durations
-- `rate_limit`: 30.0 seconds
-- `quota_exhausted`: 60.0 seconds
-- `service_unavailable`: 45.0 seconds
-- `timeout`: 20.0 seconds
-- `network_error`: 15.0 seconds
+### Default Base and Maximum Durations
+
+| Error category | Base | Backoff factor | Maximum |
+|---|---:|---:|---:|
+| `rate_limit` | 30 seconds | 2.0 | 900 seconds |
+| `quota_exhausted` | 120 seconds | 2.0 | 3,600 seconds |
+| `service_unavailable` | 15 seconds | 2.0 | 300 seconds |
+| `timeout` | 10 seconds | 1.5 | 120 seconds |
+| `network_error` | 10 seconds | 1.5 | 120 seconds |
+| `unknown` | 20 seconds | 1.5 | 300 seconds |
 
 ### Exponential Backoff & Jitter Formula
 
-$$\text{backoff} = \min(\text{base} \times 2^{\text{consecutive\_failures}}, \text{MAX\_COOLDOWN})$$
+For a transient failure without an upstream retry instruction:
 
-$$\text{jitter} = \text{uniform}(0.85, 1.15)$$
+$\text{backoff} = \min(\text{base} \times \text{factor}^{\text{consecutive\_cooldowns}}, \text{category maximum})$
 
-$$\text{cooldown\_seconds} = \max(\text{Retry-After}, \text{backoff} \times \text{jitter})$$
+$\text{cooldown} = \text{uniform}(\text{backoff} \times (1-j), \text{backoff} \times (1+j))$
 
-Where `MAX_COOLDOWN = 1800.0` seconds (30 minutes).
+The default jitter ratio `j` is 0.20 (±20%). The cooldown streak is persisted per credential in `consecutive_cooldowns`; the first cooldown uses exponent 0. A successful request resets the streak.
+
+### Configuration Overrides
+
+Set these optional environment variables to override a category's policy. `<CATEGORY>` is the uppercase enum name, for example `RATE_LIMIT`, `SERVICE_UNAVAILABLE`, or `NETWORK_ERROR`.
+
+- `AXLY_COOLDOWN_<CATEGORY>_BASE_SECONDS`
+- `AXLY_COOLDOWN_<CATEGORY>_MAX_SECONDS`
+- `AXLY_COOLDOWN_<CATEGORY>_BACKOFF_FACTOR`
+- `AXLY_COOLDOWN_JITTER_RATIO` (0.0 to 1.0)
+
+Values are validated and bounded by the policy reader; invalid numeric values fall back to defaults.
 
 ### Header Priority (`Retry-After`)
-If the upstream provider sends a standard HTTP `Retry-After` header (integer seconds or delta), the engine prioritizes that explicit upstream instruction over internal heuristics.
+
+When the upstream sends `Retry-After`, its value is authoritative: delta-seconds and HTTP-date formats are parsed, and the persisted cooldown is set to at least that exact delay without adding jitter or truncating it. The short in-request delay before trying another candidate remains separately bounded so the gateway can fail over to a different credential/provider instead of holding the client request for a long cooldown.
 
 ---
 
